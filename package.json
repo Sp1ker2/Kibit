@@ -1,0 +1,11 @@
+{
+  "name": "livekit-stream-app",
+  "version": "1.0.0",
+  "description": "LiveKit Stream Application",
+  "scripts": {
+    "start": "./start.sh",
+    "dev": "npm --prefix streamApp run dev",
+    "livekit": "cd livekit && livekit-server --dev"
+  }
+}
+
