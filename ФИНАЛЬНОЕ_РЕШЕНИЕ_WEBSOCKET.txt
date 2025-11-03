@@ -1,0 +1,95 @@
+✅ ФИНАЛЬНОЕ РЕШЕНИЕ: Nginx проксирование WebSocket с SSL
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ПРОБЛЕМА: LiveKit в dev режиме не поддерживает SSL напрямую
+
+РЕШЕНИЕ: Использовать Nginx проксирование с SSL терминированием
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+КАК ЭТО РАБОТАЕТ:
+
+1. Клиент подключается: wss://kibitkostreamappv.pp.ua/rtc
+2. Nginx терминирует SSL (wss:// → ws://)
+3. Nginx проксирует на: ws://127.0.0.1:7880/rtc
+4. LiveKit отвечает через Nginx обратно к клиенту
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ЧТО НУЖНО СДЕЛАТЬ:
+
+1. Обновите config.ts на сервере:
+
+   Загрузите обновленный файл:
+   streamApp/src/config.ts
+   
+   Путь на сервере:
+   /www/wwwroot/LiveKit/streamApp/src/config.ts
+
+2. Убедитесь что Nginx конфигурация правильная:
+
+   sudo bash /www/wwwroot/LiveKit/fix-websocket-https.sh
+
+3. Перезагрузите Nginx:
+
+   sudo systemctl reload nginx
+
+4. Перезапустите frontend:
+
+   - Перезапустите daemon в панели
+   - Или перезапустите frontend процесс
+
+5. Обновите страницу в браузере:
+
+   - Нажмите Ctrl+F5 (полная перезагрузка)
+   - Откройте консоль (F12)
+
+6. Проверьте логи:
+
+   - Должен быть лог: "LiveKit: wss://kibitkostreamappv.pp.ua"
+   - Попробуйте запустить стрим
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ВАЖНО:
+
+- LIVEKIT_URL должен быть: wss://host (без порта и без /rtc)
+- LiveKit клиент автоматически добавит /rtc
+- Nginx должен проксировать /rtc на ws://127.0.0.1:7880
+- Location /rtc должен быть ВНУТРИ HTTPS блока (listen 443)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ПРОВЕРКА:
+
+1. Проверьте конфигурацию Nginx:
+
+   grep -A 10 "location /rtc" /etc/nginx/sites-available/kibitkostreamappv.pp.ua
+
+   Должно быть:
+   location /rtc {
+       proxy_pass http://127.0.0.1:7880;
+       ...
+   }
+
+2. Проверьте что location /rtc в HTTPS блоке:
+
+   grep -B 30 "location /rtc" /etc/nginx/sites-available/kibitkostreamappv.pp.ua | grep "listen"
+
+   Должно показать: listen 443 ssl http2;
+
+3. Проверьте WebSocket:
+
+   curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
+        -H "Sec-WebSocket-Key: test" -H "Sec-WebSocket-Version: 13" \
+        https://kibitkostreamappv.pp.ua/rtc
+
+   Должен вернуть: 101 Switching Protocols
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+После этого WebSocket должен работать!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

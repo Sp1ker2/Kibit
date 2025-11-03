@@ -23,7 +23,13 @@ echo "✅ Все зависимости установлены"
 echo ""
 
 # Получаем локальный IP адрес
-LOCAL_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || hostname -I | awk '{print $1}')
+if command -v ipconfig &> /dev/null; then
+    # macOS
+    LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
+else
+    # Linux
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || ip addr show | grep "inet " | grep -v 127.0.0.1 | head -n1 | awk '{print $2}' | cut -d/ -f1)
+fi
 
 echo "🔧 Запускаем LiveKit сервер на порту 7880..."
 echo "🔌 Запускаем API сервер на порту 3001..."

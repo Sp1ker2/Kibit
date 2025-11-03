@@ -6,7 +6,7 @@ import { RoomServiceClient } from 'livekit-server-sdk';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { userDB } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,7 +27,7 @@ const RECORDINGS_DIR = join(__dirname, '../../recordings');
 
 // Создаем папку recordings если её нет
 if (!existsSync(RECORDINGS_DIR)) {
-  await fs.mkdir(RECORDINGS_DIR, { recursive: true });
+  mkdirSync(RECORDINGS_DIR, { recursive: true });
   console.log('📁 Папка recordings создана');
 }
 

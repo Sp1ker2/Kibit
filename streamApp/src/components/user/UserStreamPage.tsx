@@ -34,16 +34,60 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
       setError("")
       console.log("Начинаем запуск стрима...")
       
+      // Проверяем доступность mediaDevices
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        throw new Error("getDisplayMedia не доступен. Убедитесь что используете HTTPS или localhost")
+      }
+      
       // ВАЖНО: getDisplayMedia должен быть вызван ПЕРВЫМ, сразу из обработчика клика!
+      // ПРИМЕЧАНИЕ: getDisplayMedia НЕ поддерживает exact и min constraints, только ideal
       console.log("Запрашиваем доступ к экрану...")
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: 1920 },
           height: { ideal: 1080 },
-          frameRate: { ideal: 30 }
+          frameRate: { ideal: 60 }
         },
         audio: true // Захватываем звук с экрана
       })
+      
+      // Получаем видео трек один раз и используем везде
+      const videoTrack = stream.getVideoTracks()[0]
+      if (!videoTrack) {
+        throw new Error("Не удалось получить видео трек")
+      }
+      
+      // Применяем настройки качества к видео треку
+      // Настраиваем параметры видео трека для максимального качества
+      const settings = videoTrack.getSettings()
+      console.log("📹 Настройки видео трека:", settings)
+      
+      // Применяем ограничения для максимального качества
+      try {
+        await videoTrack.applyConstraints({
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+          frameRate: { ideal: 60, min: 30 }
+        })
+        
+        const newSettings = videoTrack.getSettings()
+        console.log("✅ Применены настройки качества:", newSettings)
+        console.log("📊 Финальное разрешение:", newSettings.width, "x", newSettings.height, "@", newSettings.frameRate, "fps")
+      } catch (err) {
+        console.warn("⚠️ Не удалось применить ограничения, используем доступное:", err)
+        // Пробуем с более мягкими ограничениями
+        try {
+          await videoTrack.applyConstraints({
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
+          })
+        } catch (err2) {
+          console.warn("⚠️ Не удалось применить даже мягкие ограничения:", err2)
+          // Используем то что есть
+        }
+      }
+      
       console.log("Доступ к экрану получен")
 
       // Устанавливаем состояние стриминга СРАЗУ
@@ -77,7 +121,6 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
         videoRef.current.srcObject = stream
         
         // Проверяем что поток активен
-        const videoTrack = stream.getVideoTracks()[0]
         console.log("Видео трек активен:", videoTrack?.enabled, "готов:", videoTrack?.readyState)
         
         // Форсируем воспроизведение
@@ -100,17 +143,67 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
       // Создаем комнату
       const newRoom = new Room()
       console.log("Подключаемся к серверу:", LIVEKIT_SERVER_URL)
+      console.log("🌐 Полный URL для подключения:", LIVEKIT_SERVER_URL)
       
-      // Подключаемся
-      await newRoom.connect(LIVEKIT_SERVER_URL, token)
-      console.log("Подключено к комнате")
+      // Подключаемся с таймаутом
+      try {
+        await Promise.race([
+          newRoom.connect(LIVEKIT_SERVER_URL, token),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout: не удалось подключиться к LiveKit серверу за 10 секунд')), 10000)
+          )
+        ])
+        console.log("✅ Подключено к комнате")
+      } catch (connectError: any) {
+        console.error("❌ Ошибка подключения к LiveKit:", connectError)
+        throw new Error(`Не удалось подключиться к LiveKit серверу (${LIVEKIT_SERVER_URL}). Проверьте что сервер запущен на порту 7880 и Nginx настроен для проксирования WebSocket. Ошибка: ${connectError.message || connectError}`)
+      }
+      
       setRoom(newRoom)
 
-      // Публикуем видео трек в комнату
-      const videoTrack = stream.getVideoTracks()[0]
+      // Публикуем видео трек в комнату с настройками качества
       console.log("Публикуем видео трек...")
-      await newRoom.localParticipant.publishTrack(videoTrack)
-      console.log("Видео трек опубликован")
+      
+      // Получаем текущие настройки трека
+      const trackSettings = videoTrack.getSettings()
+      const currentWidth = trackSettings.width || 1920
+      const currentHeight = trackSettings.height || 1080
+      const currentFrameRate = trackSettings.frameRate || 60
+      
+      console.log("📹 Настройки видео трека:", {
+        width: currentWidth,
+        height: currentHeight,
+        frameRate: currentFrameRate,
+        aspectRatio: trackSettings.aspectRatio,
+        deviceId: trackSettings.deviceId
+      })
+      
+      // Устанавливаем фиксированный высокий битрейт для стабильного качества
+      // Для 1920x1080@60fps оптимальный битрейт: 8-10 Mbps
+      // Для меньших разрешений используем пропорциональный битрейт
+      const resolutionMultiplier = (currentWidth * currentHeight) / (1920 * 1080)
+      const frameRateMultiplier = currentFrameRate / 60
+      const baseBitrate = 8_000_000 // 8 Mbps базовая для 1080p@60fps
+      const fixedBitrate = Math.floor(baseBitrate * resolutionMultiplier * frameRateMultiplier)
+      
+      // Ограничиваем разумными значениями
+      const finalBitrate = Math.max(3_000_000, Math.min(fixedBitrate, 10_000_000)) // От 3 до 10 Mbps
+      
+      console.log(`📊 Фиксированный битрейт: ${(finalBitrate / 1_000_000).toFixed(2)} Mbps для ${currentWidth}x${currentHeight}@${currentFrameRate}fps`)
+      
+      // Публикуем с фиксированными настройками качества
+      // Отключаем simulcast для стабильного фиксированного качества (без адаптации)
+      await newRoom.localParticipant.publishTrack(videoTrack, {
+        videoEncoding: {
+          maxBitrate: finalBitrate, // Фиксированный высокий битрейт
+          maxFramerate: currentFrameRate, // Максимальный FPS
+        },
+        simulcast: false, // ОТКЛЮЧЕНО для стабильного фиксированного качества (не адаптируется)
+        // dtx: false, // Отключаем DTX (Discontinuous Transmission) для постоянной передачи
+      })
+      
+      console.log(`✅ Видео трек опубликован с фиксированным качеством: ${(finalBitrate / 1_000_000).toFixed(2)} Mbps @ ${currentFrameRate} FPS (${currentWidth}x${currentHeight})`)
+      console.log("⚠️ Simulcast отключен - качество будет стабильным без адаптации")
 
       // Публикуем аудио трек если есть
       const audioTrack = stream.getAudioTracks()[0]
@@ -129,21 +222,53 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
       }
       
     } catch (err: any) {
-      console.error("Ошибка запуска стрима:", err)
+      console.error("❌ Ошибка запуска стрима:", err)
+      console.error("Детали ошибки:", {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        url: LIVEKIT_SERVER_URL
+      })
+      
       let errorMessage = "Не удалось запустить стрим. "
       
       if (err.name === 'NotAllowedError') {
         errorMessage = "Вы отменили захват экрана. Разрешите доступ к экрану для стриминга."
-      } else if (err.message?.includes('connect')) {
-        errorMessage = "Не удалось подключиться к LiveKit серверу. Убедитесь что сервер запущен."
+      } else if (err.message?.includes('connect') || err.message?.includes('LiveKit') || err.message?.includes('Timeout')) {
+        errorMessage = `Не удалось подключиться к LiveKit серверу.\n\n` +
+          `URL: ${LIVEKIT_SERVER_URL}\n\n` +
+          `Проверьте:\n` +
+          `1. LiveKit сервер запущен: livekit-server --dev\n` +
+          `2. Порт 7880 открыт и доступен\n` +
+          `3. Nginx настроен для проксирования WebSocket на /rtc\n` +
+          `4. HTTPS работает (для wss:// подключения)\n\n` +
+          `Ошибка: ${err.message || err}`
       } else {
         errorMessage += err.message || "Неизвестная ошибка."
       }
       
       setError(errorMessage)
+      
+      // Очищаем состояние при ошибке
+      setIsStreaming(false)
       if (room) {
-        room.disconnect()
+        try {
+          room.disconnect()
+        } catch (e) {
+          console.error("Ошибка при отключении:", e)
+        }
         setRoom(null)
+      }
+      
+      // Останавливаем треки если они были захвачены
+      if (videoRef.current && videoRef.current.srcObject) {
+        try {
+          const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
+          tracks.forEach(track => track.stop())
+          videoRef.current.srcObject = null
+        } catch (e) {
+          console.error("Ошибка при остановке треков:", e)
+        }
       }
     }
   }

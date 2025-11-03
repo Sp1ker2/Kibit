@@ -1,0 +1,56 @@
+🚨 ОШИБКА ERR_CONNECTION_REFUSED - БЫСТРОЕ ИСПРАВЛЕНИЕ:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ЭТО ОЗНАЧАЕТ: Браузер не может подключиться к серверу.
+
+ВОЗМОЖНЫЕ ПРИЧИНЫ:
+1. Nginx не запущен
+2. Порт 80 закрыт firewall
+3. Nginx конфигурация сломана
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+БЫСТРОЕ ИСПРАВЛЕНИЕ:
+
+1. Выполните диагностику на сервере:
+   
+   bash /www/wwwroot/LiveKit/diagnose-connection-refused.sh
+
+2. Если Nginx не запущен - запустите:
+   
+   sudo systemctl start nginx
+   sudo systemctl enable nginx
+
+3. Если порты закрыты - откройте:
+   
+   sudo ufw allow 80/tcp
+   sudo ufw allow 443/tcp
+   
+   Или если используется firewall-cmd:
+   sudo firewall-cmd --permanent --add-port=80/tcp
+   sudo firewall-cmd --permanent --add-port=443/tcp
+   sudo firewall-cmd --reload
+
+4. Если конфигурация сломана - исправьте:
+   
+   sudo bash /www/wwwroot/LiveKit/fix-livekit-connection.sh
+
+5. Перезагрузите Nginx:
+   
+   sudo systemctl reload nginx
+
+6. Проверьте что Nginx работает:
+   
+   sudo systemctl status nginx
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ПОСЛЕ ИСПРАВЛЕНИЯ:
+
+1. Обновите страницу в браузере (Ctrl+F5)
+2. Проверьте что сайт открывается
+3. Попробуйте запустить стрим
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

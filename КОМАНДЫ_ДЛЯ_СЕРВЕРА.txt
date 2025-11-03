@@ -1,0 +1,73 @@
+# ⚠️ ВАЖНО: Выполните эти команды на сервере 195.133.17.131
+# Подключитесь: ssh -p 16205 th3dw0l9@195.133.17.131
+# Затем выполните:
+
+sudo bash <<'SCRIPT'
+DOMAIN="kibitkostreamappv.pp.ua"
+
+echo "🚀 Настройка домена ${DOMAIN}..."
+
+# 1. Удаляем default конфигурацию
+rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-available/default
+
+# 2. Создаем конфигурацию для домена
+mkdir -p /etc/nginx/sites-available
+mkdir -p /etc/nginx/sites-enabled
+
+cat > /etc/nginx/sites-available/${DOMAIN} <<'NGINX_CONFIG'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name kibitkostreamappv.pp.ua;
+
+    location / {
+        proxy_pass http://127.0.0.1:5173;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    location /api {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /rtc {
+        proxy_pass http://127.0.0.1:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+    
+    location ~ ^/(live|twirp) {
+        proxy_pass http://127.0.0.1:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+NGINX_CONFIG
+
+# 3. Активируем конфигурацию
+rm -f /etc/nginx/sites-enabled/${DOMAIN}
+ln -s /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN}
+
+# 4. Проверяем и перезагружаем
+nginx -t && systemctl reload nginx && echo "✅ Готово! http://${DOMAIN}"
+SCRIPT
