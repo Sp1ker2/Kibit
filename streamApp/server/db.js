@@ -37,7 +37,7 @@ initUsers();
 export const userDB = {
   // Получить всех пользователей
   getAllUsers() {
-    return db.prepare('SELECT id, username, password, created_at FROM users ORDER BY id ASC').all();
+    return db.prepare('SELECT id, username, password, role, created_at FROM users ORDER BY id ASC').all();
   },
 
   // Найти пользователя по логину
@@ -46,10 +46,10 @@ export const userDB = {
   },
 
   // Создать пользователя
-  createUser(username, password) {
+  createUser(username, password, role = 'user') {
     try {
-      const result = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username, password);
-      return { id: result.lastInsertRowid, username, password };
+      const result = db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run(username, password, role);
+      return { id: result.lastInsertRowid, username, password, role };
     } catch (err) {
       if (err.message.includes('UNIQUE constraint failed')) {
         throw new Error('Пользователь с таким логином уже существует');
@@ -81,7 +81,9 @@ export const userDB = {
   authenticate(username, password) {
     const user = this.findByUsername(username);
     if (user && user.password === password) {
-      return { id: user.id, username: user.username };
+      // Возвращаем роль напрямую из БД, если не установлена - по умолчанию "user"
+      const role = user.role || 'user';
+      return { id: user.id, username: user.username, role };
     }
     return null;
   }

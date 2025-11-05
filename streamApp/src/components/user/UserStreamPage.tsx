@@ -253,7 +253,7 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
       setIsStreaming(false)
       if (room) {
         try {
-          room.disconnect()
+        room.disconnect()
         } catch (e) {
           console.error("Ошибка при отключении:", e)
         }

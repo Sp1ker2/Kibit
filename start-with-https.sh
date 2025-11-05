@@ -31,23 +31,29 @@ pkill -f "npm run api" 2>/dev/null
 pkill -f "vite" 2>/dev/null
 sleep 2
 
+# Очищаем логи перед запуском
+echo "📝 Очистка логов..."
+> /tmp/livekit.log
+> /tmp/api.log
+> /tmp/frontend.log
+
 # Запускаем LiveKit сервер в фоне
 echo "🔧 Запускаем LiveKit сервер на порту 7880..."
-(cd livekit && livekit-server --dev --bind 0.0.0.0 > /tmp/livekit.log 2>&1) &
+(cd livekit && livekit-server --dev --bind 0.0.0.0 >> /tmp/livekit.log 2>&1) &
 
 # Ждем немного
 sleep 3
 
 # Запускаем API сервер в фоне
 echo "🔌 Запускаем API сервер на порту 3001..."
-(cd streamApp && npm run api > /tmp/api.log 2>&1) &
+(cd streamApp && npm run api >> /tmp/api.log 2>&1) &
 
 # Ждем немного
 sleep 2
 
 # Запускаем React приложение в фоне
 echo "🌐 Запускаем React приложение на порту 5173..."
-(cd streamApp && npm run dev > /tmp/frontend.log 2>&1) &
+(cd streamApp && npm run dev >> /tmp/frontend.log 2>&1) &
 
 # Ждем чтобы процессы запустились
 sleep 5

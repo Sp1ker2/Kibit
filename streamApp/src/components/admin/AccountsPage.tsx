@@ -18,6 +18,7 @@ interface Account {
   id: number
   username: string
   password: string
+  role?: string
 }
 
 const ITEMS_PER_PAGE = 10
@@ -28,12 +29,14 @@ export function AccountsPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editUsername, setEditUsername] = useState("")
   const [editPassword, setEditPassword] = useState("")
+  const [editRole, setEditRole] = useState<"admin" | "user">("user")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   
   // Форма создания
   const [newUsername, setNewUsername] = useState("")
   const [newPassword, setNewPassword] = useState("")
+  const [newRole, setNewRole] = useState<"admin" | "user">("user")
 
   // Загружаем пользователей при монтировании
   useEffect(() => {
@@ -66,7 +69,11 @@ export function AccountsPage() {
       const response = await fetch(`${API_URL}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword.trim() }),
+        body: JSON.stringify({ 
+          username: newUsername.trim(), 
+          password: newPassword.trim(),
+          role: newRole
+        }),
       })
 
       const data = await response.json()
@@ -74,6 +81,7 @@ export function AccountsPage() {
       if (response.ok) {
         setNewUsername("")
         setNewPassword("")
+        setNewRole("user")
         fetchAccounts() // Перезагружаем список
       } else {
         alert(data.error || "Ошибка создания пользователя")
@@ -107,6 +115,7 @@ export function AccountsPage() {
     setEditingId(account.id)
     setEditUsername(account.username)
     setEditPassword(account.password)
+    setEditRole((account.role || "user") as "admin" | "user")
   }
 
   const handleSaveEdit = async (id: number) => {
@@ -119,7 +128,11 @@ export function AccountsPage() {
       const response = await fetch(`${API_URL}/api/users/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: editUsername.trim(), password: editPassword.trim() }),
+        body: JSON.stringify({ 
+          username: editUsername.trim(), 
+          password: editPassword.trim(),
+          role: editRole
+        }),
       })
 
       const data = await response.json()
@@ -178,6 +191,19 @@ export function AccountsPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="role">Роль</Label>
+              <select
+                id="role"
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value as "admin" | "user")}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="user">Пользователь</option>
+                <option value="admin">Администратор</option>
+              </select>
+            </div>
+
             <Button onClick={handleCreate} className="w-full">
               Создать
             </Button>
@@ -214,7 +240,7 @@ export function AccountsPage() {
                     {editingId === account.id ? (
                       <>
                         {/* Режим редактирования */}
-                        <div className="flex-1 grid grid-cols-2 gap-2">
+                        <div className="flex-1 grid grid-cols-3 gap-2">
                           <Input
                             value={editUsername}
                             onChange={(e) => setEditUsername(e.target.value)}
@@ -228,6 +254,14 @@ export function AccountsPage() {
                             placeholder="Пароль"
                             className="h-7 text-sm"
                           />
+                          <select
+                            value={editRole}
+                            onChange={(e) => setEditRole(e.target.value as "admin" | "user")}
+                            className="flex h-7 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            <option value="user">Пользователь</option>
+                            <option value="admin">Администратор</option>
+                          </select>
                         </div>
                         <div className="flex items-center gap-1">
                           <Button
@@ -252,9 +286,18 @@ export function AccountsPage() {
                       <>
                         {/* Обычный режим */}
                         <div className="flex-1">
-                          <p className="font-medium text-sm text-foreground">
-                            {account.username}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm text-foreground">
+                              {account.username}
+                            </p>
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                              account.role === 'admin' 
+                                ? 'bg-blue-500/20 text-blue-400' 
+                                : 'bg-gray-500/20 text-gray-400'
+                            }`}>
+                              {account.role === 'admin' ? 'Админ' : 'Пользователь'}
+                            </span>
+                          </div>
                           <p className="text-xs text-muted-foreground">
                             Пароль: {account.password}
                           </p>

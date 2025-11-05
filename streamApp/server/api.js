@@ -88,13 +88,13 @@ app.get('/api/users', (req, res) => {
 // Создать пользователя
 app.post('/api/users', (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, role } = req.body;
     
     if (!username || !password) {
       return res.status(400).json({ error: 'Введите логин и пароль' });
     }
 
-    const user = userDB.createUser(username, password);
+    const user = userDB.createUser(username, password, role || 'user');
     res.json(user);
   } catch (error) {
     console.error('Ошибка создания пользователя:', error);

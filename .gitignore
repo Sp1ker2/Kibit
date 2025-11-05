@@ -1,3 +1,6 @@
 recordings/
 .env
 livekit
+*.db
+database.db
+streamApp/database.db

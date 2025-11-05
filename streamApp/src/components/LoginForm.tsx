@@ -39,8 +39,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       const data = await response.json()
 
       if (response.ok && data.success) {
-        // Определяем тип пользователя: Admin = admin, все остальные = user
-        const userType = data.user.username === "Admin" ? "admin" : "user"
+        // Используем роль из ответа API напрямую
+        const userType = (data.user.role || "user") as "admin" | "user"
         onLogin(userType, data.user.username)
       } else {
         setError(data.error || "Ошибка авторизации")
