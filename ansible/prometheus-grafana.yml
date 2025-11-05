@@ -1,0 +1,345 @@
+---
+# Ansible Playbook для установки Prometheus + Grafana
+# Мониторинг всех серверов
+
+- name: Установка Prometheus и Grafana
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Проверка подключения
+      ping:
+
+    # ===== Установка node_exporter на всех серверах =====
+    
+    - name: Проверка node_exporter
+      command: node_exporter --version
+      register: node_exporter_check
+      changed_when: false
+      failed_when: false
+
+    - name: Скачивание node_exporter
+      get_url:
+        url: https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
+        dest: /tmp/node_exporter.tar.gz
+        mode: '0644'
+      when: node_exporter_check.rc != 0
+
+    - name: Распаковка node_exporter
+      unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp
+        remote_src: yes
+      when: node_exporter_check.rc != 0
+
+    - name: Копирование node_exporter в /usr/local/bin
+      copy:
+        src: /tmp/node_exporter-1.7.0.linux-amd64/node_exporter
+        dest: /usr/local/bin/node_exporter
+        mode: '0755'
+        remote_src: yes
+      when: node_exporter_check.rc != 0
+
+    - name: Создание пользователя node_exporter
+      user:
+        name: node_exporter
+        system: yes
+        shell: /usr/sbin/nologin
+        home: /var/lib/node_exporter
+        create_home: yes
+      when: node_exporter_check.rc != 0
+
+    - name: Создание systemd service для node_exporter
+      copy:
+        content: |
+          [Unit]
+          Description=Node Exporter
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=node_exporter
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/node_exporter.service
+        mode: '0644'
+      when: node_exporter_check.rc != 0
+      notify: reload systemd
+
+    - name: Запуск node_exporter
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: started
+      when: node_exporter_check.rc != 0
+
+    - name: Проверка node_exporter
+      wait_for:
+        port: 9100
+        host: 0.0.0.0
+        delay: 2
+        timeout: 10
+      when: node_exporter_check.rc != 0
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+- name: Установка Prometheus на master
+  hosts: master
+  become: yes
+
+  tasks:
+    - name: Проверка Prometheus
+      command: prometheus --version
+      register: prometheus_check
+      changed_when: false
+      failed_when: false
+
+    - name: Создание пользователя prometheus
+      user:
+        name: prometheus
+        system: yes
+        shell: /usr/sbin/nologin
+        home: /var/lib/prometheus
+        create_home: yes
+      when: prometheus_check.rc != 0
+
+    - name: Создание директорий для Prometheus
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: prometheus
+        group: prometheus
+        mode: '0755'
+      loop:
+        - /etc/prometheus
+        - /var/lib/prometheus
+        - /var/lib/prometheus/rules
+      when: prometheus_check.rc != 0
+
+    - name: Скачивание Prometheus
+      get_url:
+        url: https://github.com/prometheus/prometheus/releases/download/v2.48.0/prometheus-2.48.0.linux-amd64.tar.gz
+        dest: /tmp/prometheus.tar.gz
+        mode: '0644'
+      when: prometheus_check.rc != 0
+
+    - name: Распаковка Prometheus
+      unarchive:
+        src: /tmp/prometheus.tar.gz
+        dest: /tmp
+        remote_src: yes
+      when: prometheus_check.rc != 0
+
+    - name: Копирование prometheus и promtool
+      copy:
+        src: "{{ item }}"
+        dest: /usr/local/bin/{{ item | basename }}
+        mode: '0755'
+        remote_src: yes
+      loop:
+        - /tmp/prometheus-2.48.0.linux-amd64/prometheus
+        - /tmp/prometheus-2.48.0.linux-amd64/promtool
+      when: prometheus_check.rc != 0
+
+    - name: Копирование консоли и консоль-библиотек
+      copy:
+        src: /tmp/prometheus-2.48.0.linux-amd64/{{ item }}
+        dest: /etc/prometheus/{{ item }}
+        mode: '0644'
+        remote_src: yes
+        owner: prometheus
+        group: prometheus
+      loop:
+        - consoles
+        - console_libraries
+      when: prometheus_check.rc != 0
+
+    - name: Создание конфигурации Prometheus
+      template:
+        src: templates/prometheus.yml.j2
+        dest: /etc/prometheus/prometheus.yml
+        mode: '0644'
+        owner: prometheus
+        group: prometheus
+      notify: restart prometheus
+
+    - name: Создание systemd service для Prometheus
+      copy:
+        content: |
+          [Unit]
+          Description=Prometheus
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=prometheus
+          ExecStart=/usr/local/bin/prometheus \
+            --config.file=/etc/prometheus/prometheus.yml \
+            --storage.tsdb.path=/var/lib/prometheus \
+            --web.console.templates=/etc/prometheus/consoles \
+            --web.console.libraries=/etc/prometheus/console_libraries \
+            --web.listen-address=0.0.0.0:9090
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/prometheus.service
+        mode: '0644'
+      when: prometheus_check.rc != 0
+      notify: reload systemd
+
+    - name: Запуск Prometheus
+      systemd:
+        name: prometheus
+        enabled: yes
+        state: started
+      when: prometheus_check.rc != 0
+
+    - name: Проверка Prometheus
+      wait_for:
+        port: 9090
+        host: 0.0.0.0
+        delay: 5
+        timeout: 30
+      when: prometheus_check.rc != 0
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: restart prometheus
+      systemd:
+        name: prometheus
+        state: restarted
+
+- name: Установка Grafana на master
+  hosts: master
+  become: yes
+
+  tasks:
+    - name: Проверка Grafana
+      command: grafana-server --version
+      register: grafana_check
+      changed_when: false
+      failed_when: false
+
+    - name: Добавление GPG ключа Grafana
+      shell: |
+        curl -fsSL https://packages.grafana.com/gpg.key | gpg --dearmor -o /usr/share/keyrings/grafana.gpg
+      args:
+        creates: /usr/share/keyrings/grafana.gpg
+      when: grafana_check.rc != 0
+
+    - name: Добавление репозитория Grafana
+      shell: |
+        echo "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://packages.grafana.com/oss/deb stable main" > /etc/apt/sources.list.d/grafana.list
+      args:
+        creates: /etc/apt/sources.list.d/grafana.list
+      when: grafana_check.rc != 0
+
+    - name: Обновление apt cache после добавления репозитория
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: grafana_check.rc != 0
+
+    - name: Установка Grafana
+      apt:
+        name: grafana
+        state: present
+        update_cache: no
+      when: grafana_check.rc != 0
+      async: 300
+      poll: 10
+
+    - name: Настройка Grafana для прослушивания на всех интерфейсах
+      lineinfile:
+        path: /etc/grafana/grafana.ini
+        regexp: '^;?http_addr ='
+        line: 'http_addr = 0.0.0.0'
+        backup: yes
+      when: grafana_check.rc != 0
+
+    - name: Настройка Grafana порта
+      lineinfile:
+        path: /etc/grafana/grafana.ini
+        regexp: '^;?http_port ='
+        line: 'http_port = 3000'
+        backup: yes
+      when: grafana_check.rc != 0
+
+    - name: Запуск Grafana
+      systemd:
+        name: grafana-server
+        enabled: yes
+        state: started
+      when: grafana_check.rc != 0
+
+    - name: Ожидание запуска Grafana
+      wait_for:
+        port: 3000
+        host: 0.0.0.0
+        delay: 5
+        timeout: 30
+      when: grafana_check.rc != 0
+
+    - name: Установка пароля admin для Grafana (если не установлен)
+      shell: |
+        grafana-cli admin reset-admin-password admin || true
+      register: grafana_password_reset
+      changed_when: false
+      failed_when: false
+      when: grafana_check.rc != 0
+      ignore_errors: yes
+
+    - name: Настройка root_url для Grafana (поддомен)
+      lineinfile:
+        path: /etc/grafana/grafana.ini
+        regexp: '^;?root_url ='
+        line: 'root_url = https://kibitkostreamappv.pp.ua/grafana/'
+        backup: yes
+      when: grafana_check.rc != 0
+
+    - name: Настройка serve_from_sub_path для Grafana
+      lineinfile:
+        path: /etc/grafana/grafana.ini
+        regexp: '^;?serve_from_sub_path ='
+        line: 'serve_from_sub_path = true'
+        backup: yes
+      when: grafana_check.rc != 0
+
+    - name: Перезапуск Grafana после настройки
+      systemd:
+        name: grafana-server
+        state: restarted
+      when: grafana_check.rc != 0
+
+    - name: Вывод информации о Grafana
+      debug:
+        msg: |
+          Grafana установлена и запущена!
+          URL: https://kibitkostreamappv.pp.ua/grafana/
+          Логин: admin
+          Пароль: admin (измените при первом входе!)
+          
+          Prometheus URL: https://kibitkostreamappv.pp.ua/prometheus/
+          
+          Настройки:
+          - root_url = https://kibitkostreamappv.pp.ua/grafana/
+          - serve_from_sub_path = true
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+

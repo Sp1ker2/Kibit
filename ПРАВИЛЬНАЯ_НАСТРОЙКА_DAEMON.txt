@@ -1,0 +1,91 @@
+═══════════════════════════════════════════════════════════════
+ПРАВИЛЬНАЯ НАСТРОЙКА DAEMON В AAPANEL
+═══════════════════════════════════════════════════════════════
+
+ПРОБЛЕМА: Daemon постоянно перезапускается и приложение не работает.
+
+РЕШЕНИЕ:
+
+1. ОСТАНОВИТЕ daemon в aaPanel:
+   - Зайдите в Supervisor -> Daemon list
+   - Нажмите "Stop" на всех daemon'ах
+   - Удалите все daemon'ы которые запускают start-with-https.sh
+
+2. ОСТАНОВИТЕ все процессы на сервере:
+   
+   На сервере выполните:
+   pkill -9 -f 'livekit'
+   pkill -9 -f 'npm'
+   pkill -9 -f 'node'
+   pkill -9 -f 'vite'
+   pkill -9 -f 'cloudflared'
+   
+   sleep 3
+
+3. ЗАПУСТИТЕ сервисы вручную (для проверки):
+   
+   cd /www/wwwroot/LiveKit
+   
+   # LiveKit
+   cd livekit && nohup livekit-server --dev --bind 0.0.0.0 > /tmp/livekit.log 2>&1 &
+   cd ..
+   
+   # API
+   cd streamApp && nohup npm run api > /tmp/api.log 2>&1 &
+   cd ..
+   
+   # Frontend
+   cd streamApp && nohup npm run dev -- --host 0.0.0.0 --port 5173 > /tmp/frontend.log 2>&1 &
+   cd ..
+   
+   # Подождите 10 секунд
+   sleep 10
+   
+   # Проверьте порты
+   netstat -tuln | grep -E '3001|5173|7880'
+   
+   Должны быть все три порта в статусе LISTEN!
+
+4. ЕСЛИ ПОРТЫ РАБОТАЮТ - настройте daemon правильно:
+   
+   В aaPanel -> Supervisor -> Daemon list:
+   
+   Нажмите "Add Daemon" или "Edit" на существующем:
+   
+   Настройки:
+   - Name: LiveKitApp
+   - Run User: root
+   - Processes: 1
+   - Startup priority: 999
+   - Start command: bash /www/wwwroot/LiveKit/start-simple.sh
+   - Process directory: /www/wwwroot/LiveKit
+   - Remark: LiveKit без Cloudflare
+   
+   ⚠️ ВАЖНО: В поле "Start command" должно быть:
+      bash /www/wwwroot/LiveKit/start-simple.sh
+   
+   НЕ используйте start-with-https.sh - он создает Cloudflare tunnel который не нужен!
+
+5. Запустите daemon и проверьте логи в aaPanel
+
+═══════════════════════════════════════════════════════════════
+
+АЛЬТЕРНАТИВА: Запустите каждый сервис отдельным daemon
+
+Daemon 1 (LiveKit):
+- Name: LiveKit
+- Start command: cd /www/wwwroot/LiveKit/livekit && livekit-server --dev --bind 0.0.0.0
+- Process directory: /www/wwwroot/LiveKit/livekit
+
+Daemon 2 (API):
+- Name: API
+- Start command: cd /www/wwwroot/LiveKit/streamApp && npm run api
+- Process directory: /www/wwwroot/LiveKit/streamApp
+
+Daemon 3 (Frontend):
+- Name: Frontend
+- Start command: cd /www/wwwroot/LiveKit/streamApp && npm run dev -- --host 0.0.0.0 --port 5173
+- Process directory: /www/wwwroot/LiveKit/streamApp
+
+═══════════════════════════════════════════════════════════════
+

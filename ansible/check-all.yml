@@ -1,0 +1,31 @@
+---
+# Проверка статуса всех серверов
+
+- name: Проверка статуса
+  hosts: all
+  gather_facts: yes
+  
+  tasks:
+    - name: Проверка подключения
+      ping:
+
+    - name: Проверка портов
+      command: netstat -tuln | grep -E '{{ api_port }}|{{ frontend_port }}|{{ livekit_port }}' || ss -tuln | grep -E '{{ api_port }}|{{ frontend_port }}|{{ livekit_port }}'
+      register: ports
+      changed_when: false
+      failed_when: false
+
+    - name: Проверка процессов
+      shell: ps aux | grep -E 'livekit-server|npm run api|npm run dev' | grep -v grep || echo "Нет процессов"
+      register: processes
+      changed_when: false
+      failed_when: false
+
+    - name: Вывод информации
+      debug:
+        msg: |
+          Сервер: {{ inventory_hostname }}
+          IP: {{ ansible_host }}
+          Порты: {{ ports.stdout_lines | default(['Не найдены']) }}
+          Процессы: {{ processes.stdout_lines | default(['Не найдены']) }}
+

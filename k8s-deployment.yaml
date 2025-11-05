@@ -1,0 +1,238 @@
+# Kubernetes конфигурация для LiveKit Stream App
+# Использование: kubectl apply -f k8s-deployment.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: streamapp
+---
+# ConfigMap для конфигурации
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streamapp-config
+  namespace: streamapp
+data:
+  API_PORT: "3001"
+  FRONTEND_PORT: "5173"
+  LIVEKIT_PORT: "7880"
+---
+# Secret для базы данных (если нужно)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: streamapp-secret
+  namespace: streamapp
+type: Opaque
+data:
+  # base64 encoded values
+  # db-password: <base64-encoded-password>
+---
+# Deployment для API сервера
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamapp-api
+  namespace: streamapp
+spec:
+  replicas: 5  # 5 реплик для балансировки нагрузки
+  selector:
+    matchLabels:
+      app: streamapp-api
+  template:
+    metadata:
+      labels:
+        app: streamapp-api
+    spec:
+      containers:
+      - name: api
+        image: node:18-alpine
+        workingDir: /app
+        command: ["npm", "run", "api"]
+        ports:
+        - containerPort: 3001
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        - name: database
+          mountPath: /app/database.db
+          subPath: database.db
+        env:
+        - name: PORT
+          value: "3001"
+      volumes:
+      - name: app-code
+        hostPath:
+          path: /www/wwwroot/LiveKit/streamApp
+      - name: database
+        persistentVolumeClaim:
+          claimName: streamapp-db
+---
+# Deployment для Frontend сервера
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamapp-frontend
+  namespace: streamapp
+spec:
+  replicas: 5  # 5 реплик для балансировки нагрузки
+  selector:
+    matchLabels:
+      app: streamapp-frontend
+  template:
+    metadata:
+      labels:
+        app: streamapp-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: node:18-alpine
+        workingDir: /app
+        command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+        ports:
+        - containerPort: 5173
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        env:
+        - name: PORT
+          value: "5173"
+      volumes:
+      - name: app-code
+        hostPath:
+          path: /www/wwwroot/LiveKit/streamApp
+---
+# Deployment для LiveKit сервера
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamapp-livekit
+  namespace: streamapp
+spec:
+  replicas: 5  # 5 реплик для балансировки нагрузки
+  selector:
+    matchLabels:
+      app: streamapp-livekit
+  template:
+    metadata:
+      labels:
+        app: streamapp-livekit
+    spec:
+      containers:
+      - name: livekit
+        image: livekit/livekit-server:latest
+        command: ["livekit-server", "--dev", "--bind", "0.0.0.0"]
+        ports:
+        - containerPort: 7880
+          protocol: TCP
+        - containerPort: 7881
+          protocol: TCP
+        - containerPort: 7882
+          protocol: UDP
+        env:
+        - name: LIVEKIT_PORT
+          value: "7880"
+---
+# Service для API
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamapp-api
+  namespace: streamapp
+spec:
+  type: LoadBalancer
+  selector:
+    app: streamapp-api
+  ports:
+  - port: 3001
+    targetPort: 3001
+    protocol: TCP
+---
+# Service для Frontend
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamapp-frontend
+  namespace: streamapp
+spec:
+  type: LoadBalancer
+  selector:
+    app: streamapp-frontend
+  ports:
+  - port: 5173
+    targetPort: 5173
+    protocol: TCP
+---
+# Service для LiveKit
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamapp-livekit
+  namespace: streamapp
+spec:
+  type: LoadBalancer
+  selector:
+    app: streamapp-livekit
+  ports:
+  - name: rtc
+    port: 7880
+    targetPort: 7880
+    protocol: TCP
+  - name: rtc-tcp
+    port: 7881
+    targetPort: 7881
+    protocol: TCP
+  - name: rtc-udp
+    port: 7882
+    targetPort: 7882
+    protocol: UDP
+---
+# PersistentVolumeClaim для базы данных
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: streamapp-db
+  namespace: streamapp
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Ingress для внешнего доступа
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: streamapp-ingress
+  namespace: streamapp
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  rules:
+  - host: kibitkostreamappv.pp.ua
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: streamapp-api
+            port:
+              number: 3001
+      - path: /rtc
+        pathType: Prefix
+        backend:
+          service:
+            name: streamapp-livekit
+            port:
+              number: 7880
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: streamapp-frontend
+            port:
+              number: 5173
+

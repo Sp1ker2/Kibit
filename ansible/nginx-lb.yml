@@ -1,0 +1,63 @@
+---
+# Настройка Nginx Load Balancer на master сервере
+# Пропускает если уже настроено
+
+- name: Настройка Nginx Load Balancer
+  hosts: master
+  become: yes
+  
+  tasks:
+    - name: Проверка Nginx
+      command: nginx -v
+      register: nginx_check
+      changed_when: false
+      failed_when: false
+
+    - name: Установка Nginx (если нет)
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian" and nginx_check.rc != 0
+
+    - name: Проверка существования конфигурации Load Balancer
+      stat:
+        path: /etc/nginx/sites-available/streamapp-lb
+      register: nginx_config_check
+
+    - name: Создание конфигурации Load Balancer (если не существует)
+      template:
+        src: templates/nginx-lb.conf.j2
+        dest: /etc/nginx/sites-available/streamapp-lb
+        mode: '0644'
+      notify: reload nginx
+      when: not nginx_config_check.stat.exists
+
+    - name: Проверка активации конфигурации
+      stat:
+        path: /etc/nginx/sites-enabled/streamapp-lb
+      register: nginx_enabled_check
+
+    - name: Активация конфигурации (если не активна)
+      file:
+        src: /etc/nginx/sites-available/streamapp-lb
+        dest: /etc/nginx/sites-enabled/streamapp-lb
+        state: link
+      when: not nginx_enabled_check.stat.exists
+
+    - name: Проверка конфигурации Nginx
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Перезагрузка Nginx (только если конфигурация валидна)
+      systemd:
+        name: nginx
+        state: reloaded
+      when: nginx_test.rc == 0
+
+  handlers:
+    - name: reload nginx
+      systemd:
+        name: nginx
+        state: reloaded

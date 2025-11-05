@@ -1,0 +1,64 @@
+# Prometheus конфигурация
+# Сгенерировано Ansible
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'livekit-monitor'
+
+# Настройки для Alertmanager (если будет использоваться)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+
+# Правила для alerting (если будут использоваться)
+rule_files:
+  # - "rules/*.yml"
+
+# Конфигурация сбора метрик
+scrape_configs:
+  # Prometheus сам себя
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          instance: 'prometheus-server'
+
+  # Node Exporter на всех серверах
+  - job_name: 'node-exporter'
+    static_configs:
+{% for host in groups['all'] %}
+      - targets: ['{{ hostvars[host]['ansible_host'] }}:9100']
+        labels:
+          instance: '{{ hostvars[host]['inventory_hostname'] }}'
+          server_ip: '{{ hostvars[host]['ansible_host'] }}'
+{% endfor %}
+
+  # API серверы (если есть метрики)
+  - job_name: 'api-servers'
+    static_configs:
+{% for host in groups['all'] %}
+      - targets: ['{{ hostvars[host]['ansible_host'] }}:3001']
+        labels:
+          instance: '{{ hostvars[host]['inventory_hostname'] }}-api'
+          service: 'api'
+{% endfor %}
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # LiveKit серверы (если есть метрики)
+  - job_name: 'livekit-servers'
+    static_configs:
+{% for host in groups['all'] %}
+      - targets: ['{{ hostvars[host]['ansible_host'] }}:7880']
+        labels:
+          instance: '{{ hostvars[host]['inventory_hostname'] }}-livekit'
+          service: 'livekit'
+{% endfor %}
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+
+

@@ -1,0 +1,64 @@
+═══════════════════════════════════════════════════════════════
+ИНСТРУКЦИЯ: Настройка Daemon в aaPanel для устранения 502 ошибки
+═══════════════════════════════════════════════════════════════
+
+1. Скопируйте скрипт на сервер:
+   scp start-daemon.sh root@195.133.17.131:/www/wwwroot/LiveKit/
+   
+   ИЛИ на сервере выполните:
+   cd /www/wwwroot/LiveKit
+   # Создайте файл start-daemon.sh и скопируйте содержимое
+
+2. На сервере сделайте скрипт исполняемым:
+   chmod +x /www/wwwroot/LiveKit/start-daemon.sh
+
+3. В aaPanel -> Supervisor -> Daemon list:
+   
+   Нажмите "Edit" на существующем daemon "test" или создайте новый:
+   
+   Настройки:
+   - Name: LiveKitApp (или любое другое имя)
+   - Run User: root
+   - Processes: 1
+   - Startup priority: 999
+   - Start command: bash /www/wwwroot/LiveKit/start-daemon.sh
+   - Process directory: /www/wwwroot/LiveKit
+   - Remark: LiveKit Stream App
+   
+   Нажмите "Confirm"
+
+4. Проверьте что daemon запущен:
+   - В aaPanel должен быть статус "Running"
+   - Проверьте логи: Supervisor -> Log
+
+5. Проверьте порты на сервере:
+   netstat -tuln | grep -E '3001|5173|7880'
+   
+   Должны быть все три порта в статусе LISTEN
+
+6. Проверьте логи:
+   tail -n 30 /tmp/livekit.log
+   tail -n 30 /tmp/api.log
+   tail -n 30 /tmp/frontend.log
+
+7. Если 502 ошибка остается:
+   - Остановите daemon в aaPanel
+   - Проверьте что все старые процессы остановлены:
+     pkill -9 -f 'livekit'
+     pkill -9 -f 'npm'
+     pkill -9 -f 'vite'
+   - Запустите daemon заново
+   - Подождите 10 секунд
+   - Обновите страницу в браузере
+
+═══════════════════════════════════════════════════════════════
+
+АЛЬТЕРНАТИВА: Используйте существующий start-with-https.sh
+
+В aaPanel в поле "Start command" укажите:
+   bash /www/wwwroot/LiveKit/start-with-https.sh
+
+Но скрипт start-daemon.sh лучше для daemon, так как он следит за процессами.
+
+═══════════════════════════════════════════════════════════════
+

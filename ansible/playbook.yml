@@ -1,0 +1,313 @@
+---
+# Ansible Playbook для развертывания LiveKit Stream App на 5 серверах
+# Пропускает уже установленное и запущенное
+
+- name: Развертывание LiveKit Stream App
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Проверка подключения к серверам
+      ping:
+
+    # ===== Установка зависимостей (только если не установлены) =====
+    
+    - name: Проверка Node.js
+      command: node --version
+      register: node_check
+      changed_when: false
+      failed_when: false
+
+    - name: Установка nvm если не установлен
+      shell: |
+        if [ ! -d "$HOME/.nvm" ]; then
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+        fi
+      args:
+        creates: /root/.nvm
+      when: node_check.rc != 0 or "'v20'" not in node_check.stdout
+
+    - name: Загрузка nvm и установка/обновление Node.js 20
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        nvm install 20
+        nvm use 20
+        nvm alias default 20
+        ln -sf $(which node) /usr/local/bin/node || true
+        ln -sf $(which npm) /usr/local/bin/npm || true
+      environment:
+        NVM_DIR: "/root/.nvm"
+      when: node_check.rc != 0 or "'v20'" not in node_check.stdout
+
+    - name: Проверка версии Node.js после установки
+      command: node --version
+      register: node_version_final
+      changed_when: false
+
+    - name: Проверка rsync
+      command: rsync --version
+      register: rsync_check
+      changed_when: false
+      failed_when: false
+
+    - name: Установка rsync если не установлен
+      apt:
+        name: rsync
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian" and rsync_check.rc != 0
+
+    - name: Проверка livekit-server
+      command: livekit-server --version
+      register: livekit_check
+      changed_when: false
+      failed_when: false
+
+    - name: Установка livekit-server если не установлен
+      shell: |
+        curl -sSL https://get.livekit.io | bash
+      when: livekit_check.rc != 0
+
+    # ===== Создание структуры директорий =====
+    
+    - name: Создание директории проекта
+      file:
+        path: "{{ project_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Создание папки recordings
+      file:
+        path: "{{ project_path }}/recordings"
+        state: directory
+        mode: '0755'
+
+    # ===== Копирование файлов (только если изменились) =====
+    
+    - name: Копирование streamApp
+      synchronize:
+        src: "../streamApp/"
+        dest: "{{ project_path }}/streamApp/"
+        mode: push
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=.git"
+          - "--exclude=*.log"
+          - "--exclude=*.db-journal"
+          - "--exclude=database.db"
+        rsync_path: "rsync"
+        use_ssh_args: yes
+      delegate_to: localhost
+      become: no
+      ignore_errors: yes
+      vars:
+        ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+
+    - name: Копирование livekit
+      synchronize:
+        src: "../livekit/"
+        dest: "{{ project_path }}/livekit/"
+        mode: push
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=*.log"
+        rsync_path: "rsync"
+        use_ssh_args: yes
+      delegate_to: localhost
+      become: no
+      ignore_errors: yes
+      vars:
+        ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+
+    - name: Копирование скриптов
+      copy:
+        src: "../{{ item }}"
+        dest: "{{ project_path }}/{{ item }}"
+        mode: '0755'
+      loop:
+        - start-simple.sh
+        - setup.sh
+
+    - name: Копирование базы данных на основной сервер
+      synchronize:
+        src: "../streamApp/database.db"
+        dest: "{{ project_path }}/streamApp/database.db"
+        mode: push
+        rsync_path: "rsync"
+        use_ssh_args: yes
+      when: server_role == "master"
+      delegate_to: localhost
+      become: no
+      vars:
+        ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+
+    # ===== Установка прав =====
+    
+    - name: Установка прав на скрипты
+      file:
+        path: "{{ project_path }}/{{ item }}"
+        mode: '0755'
+      loop:
+        - start-simple.sh
+        - setup.sh
+
+    - name: Установка прав на server файлы
+      file:
+        path: "{{ project_path }}/streamApp/server/{{ item }}"
+        mode: '0755'
+      loop:
+        - api.js
+        - db.js
+
+    # ===== Установка npm зависимостей (только если нужно) =====
+    
+    - name: Проверка node_modules
+      stat:
+        path: "{{ project_path }}/streamApp/node_modules"
+      register: node_modules_check
+
+    - name: Установка зависимостей npm
+      npm:
+        path: "{{ project_path }}/streamApp"
+        state: present
+      when: not node_modules_check.stat.exists or node_modules_check.stat.size == 0
+      ignore_errors: yes
+
+    - name: Пересборка better-sqlite3 после обновления Node.js
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        cd {{ project_path }}/streamApp
+        npm rebuild better-sqlite3
+      environment:
+        NVM_DIR: "/root/.nvm"
+      ignore_errors: yes
+      when: node_version_final is defined and "'v20'" in node_version_final.stdout
+
+    # ===== Проверка и остановка старых процессов =====
+    
+    - name: Проверка запущенных процессов
+      shell: |
+        pgrep -f "livekit-server" && echo "livekit_running" || echo "livekit_stopped"
+        pgrep -f "npm run api" && echo "api_running" || echo "api_stopped"
+        pgrep -f "npm run dev" && echo "frontend_running" || echo "frontend_stopped"
+      register: process_check
+      changed_when: false
+
+    - name: Остановка старых процессов (только если запущены)
+      shell: |
+        pkill -f "livekit-server" || true
+        pkill -f "npm run api" || true
+        pkill -f "npm run dev" || true
+        pkill -f "node server/api.js" || true
+        pkill -f "vite" || true
+      when: "'livekit_running' in process_check.stdout or 'api_running' in process_check.stdout or 'frontend_running' in process_check.stdout"
+      ignore_errors: yes
+      changed_when: false
+      failed_when: false
+
+    - name: Ожидание освобождения портов
+      shell: |
+        for port in {{ api_port }} {{ frontend_port }} {{ livekit_port }}; do
+          for i in {1..5}; do
+            if ! (netstat -tuln | grep -q ":$port " || ss -tuln | grep -q ":$port "); then
+              echo "Port $port is free"
+              break
+            fi
+            sleep 1
+          done
+        done
+      register: port_wait_free
+      changed_when: false
+      failed_when: false
+      when: "'livekit_running' in process_check.stdout or 'api_running' in process_check.stdout or 'frontend_running' in process_check.stdout"
+
+    # ===== Запуск сервисов (только если не запущены) =====
+    
+    - name: Проверка порта LiveKit
+      shell: netstat -tuln | grep -E '{{ livekit_port }}' || ss -tuln | grep -E '{{ livekit_port }}'
+      register: livekit_port_check
+      changed_when: false
+      failed_when: false
+
+    - name: Запуск LiveKit сервера
+      shell: |
+        cd {{ project_path }}/livekit
+        nohup livekit-server --dev --bind 0.0.0.0 > /tmp/livekit.log 2>&1 &
+      async: 10
+      poll: 2
+      when: livekit_port_check.rc != 0
+
+    - name: Проверка порта API
+      shell: netstat -tuln | grep -E '{{ api_port }}' || ss -tuln | grep -E '{{ api_port }}'
+      register: api_port_check
+      changed_when: false
+      failed_when: false
+
+    - name: Запуск API сервера
+      shell: |
+        cd {{ project_path }}/streamApp
+        nohup npm run api > /tmp/api.log 2>&1 &
+      async: 10
+      poll: 2
+      when: api_port_check.rc != 0
+
+    - name: Проверка порта Frontend
+      shell: netstat -tuln | grep -E '{{ frontend_port }}' || ss -tuln | grep -E '{{ frontend_port }}'
+      register: frontend_port_check
+      changed_when: false
+      failed_when: false
+
+    - name: Очистка лога frontend перед запуском
+      shell: |
+        > /tmp/frontend.log
+      when: frontend_port_check.rc != 0
+
+    - name: Запуск Frontend сервера
+      shell: |
+        cd {{ project_path }}/streamApp
+        nohup npm run dev -- --host 0.0.0.0 --port {{ frontend_port }} >> /tmp/frontend.log 2>&1 &
+      async: 10
+      poll: 2
+      when: frontend_port_check.rc != 0
+
+    # ===== Ожидание запуска сервисов =====
+    
+    - name: Ожидание запуска всех сервисов
+      shell: |
+        for port in {{ api_port }} {{ frontend_port }} {{ livekit_port }}; do
+          for i in {1..30}; do
+            if netstat -tuln | grep -q ":$port " || ss -tuln | grep -q ":$port "; then
+              echo "Port $port is listening"
+              break
+            fi
+            sleep 1
+          done
+        done
+      register: port_wait
+      changed_when: false
+      failed_when: false
+
+    # ===== Проверка статуса =====
+    
+    - name: Проверка статуса портов
+      command: netstat -tuln | grep -E '{{ api_port }}|{{ frontend_port }}|{{ livekit_port }}' || ss -tuln | grep -E '{{ api_port }}|{{ frontend_port }}|{{ livekit_port }}'
+      register: port_check
+      changed_when: false
+      failed_when: false
+
+    - name: Вывод статуса портов
+      debug:
+        msg: "{{ port_check.stdout_lines }}"
+
+    - name: Проверка процессов
+      shell: ps aux | grep -E 'livekit-server|npm run api|npm run dev' | grep -v grep
+      register: process_status
+      changed_when: false
+      failed_when: false
+
+    - name: Вывод статуса процессов
+      debug:
+        msg: "{{ process_status.stdout_lines }}"

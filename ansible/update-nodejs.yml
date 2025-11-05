@@ -1,0 +1,48 @@
+---
+# Playbook для обновления Node.js на server1 и server2
+
+- name: Обновление Node.js до версии 18+
+  hosts: server1,server2
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Проверка текущей версии Node.js
+      command: node --version
+      register: node_version
+      changed_when: false
+      failed_when: false
+
+    - name: Удаление старого Node.js и зависимостей
+      apt:
+        name:
+          - nodejs
+          - libnode-dev
+          - npm
+        state: absent
+        purge: yes
+      when: node_version.rc == 0 or "'v12'" in node_version.stdout
+
+    - name: Добавление NodeSource репозитория
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+
+    - name: Установка Node.js 18
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+
+    - name: Проверка новой версии Node.js
+      command: node --version
+      register: new_node_version
+      changed_when: false
+
+    - name: Вывод версии Node.js
+      debug:
+        msg: "Node.js обновлен: {{ new_node_version.stdout }}"
+
+
+

@@ -1,0 +1,4 @@
+# Ansible зависимости (если нужны дополнительные модули)
+# - name: community.general
+#   version: ">=1.0.0"
+

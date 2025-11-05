@@ -1,0 +1,83 @@
+---
+# Запуск всех сервисов на всех серверах (если не запущены)
+
+- name: Запуск всех сервисов
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: Проверка порта LiveKit
+      wait_for:
+        port: "{{ livekit_port }}"
+        state: started
+        timeout: 2
+      register: livekit_check
+      changed_when: false
+      failed_when: false
+
+    - name: Запуск LiveKit (если не запущен)
+      shell: |
+        cd {{ project_path }}/livekit
+        nohup livekit-server --dev --bind 0.0.0.0 > /tmp/livekit.log 2>&1 &
+      when: livekit_check.rc != 0
+      async: 10
+      poll: 2
+
+    - name: Проверка порта API
+      wait_for:
+        port: "{{ api_port }}"
+        state: started
+        timeout: 2
+      register: api_check
+      changed_when: false
+      failed_when: false
+
+    - name: Запуск API (если не запущен)
+      shell: |
+        cd {{ project_path }}/streamApp
+        nohup npm run api > /tmp/api.log 2>&1 &
+      when: api_check.rc != 0
+      async: 10
+      poll: 2
+
+    - name: Проверка порта Frontend
+      wait_for:
+        port: "{{ frontend_port }}"
+        state: started
+        timeout: 2
+      register: frontend_check
+      changed_when: false
+      failed_when: false
+
+    - name: Очистка лога frontend перед запуском
+      shell: |
+        > /tmp/frontend.log
+      when: frontend_check.rc != 0
+
+    - name: Запуск Frontend (если не запущен)
+      shell: |
+        cd {{ project_path }}/streamApp
+        nohup npm run dev -- --host 0.0.0.0 --port {{ frontend_port }} >> /tmp/frontend.log 2>&1 &
+      when: frontend_check.rc != 0
+      async: 10
+      poll: 2
+
+    - name: Ожидание запуска
+      wait_for:
+        port: "{{ item }}"
+        state: started
+        timeout: 30
+      loop:
+        - "{{ api_port }}"
+        - "{{ frontend_port }}"
+        - "{{ livekit_port }}"
+
+    - name: Проверка статуса
+      command: netstat -tuln | grep -E '{{ api_port }}|{{ frontend_port }}|{{ livekit_port }}' || ss -tuln | grep -E '{{ api_port }}|{{ frontend_port }}|{{ livekit_port }}'
+      register: status
+      changed_when: false
+
+    - name: Вывод статуса
+      debug:
+        msg: "{{ status.stdout_lines }}"
+

@@ -1,0 +1,135 @@
+# Nginx Load Balancer конфигурация для LiveKit Stream App
+# Сгенерировано Ansible
+
+# Upstream для API серверов
+upstream api_backend {
+    least_conn;
+{% for host in groups['all'] %}
+    server {{ hostvars[host]['ansible_host'] }}:{{ api_port }};
+{% endfor %}
+    keepalive 32;
+}
+
+# Upstream для Frontend серверов
+upstream frontend_backend {
+    ip_hash;
+{% for host in groups['all'] %}
+    server {{ hostvars[host]['ansible_host'] }}:{{ frontend_port }};
+{% endfor %}
+    keepalive 32;
+}
+
+# Upstream для LiveKit WebSocket
+upstream livekit_backend {
+    ip_hash;
+{% for host in groups['all'] %}
+    server {{ hostvars[host]['ansible_host'] }}:{{ livekit_port }};
+{% endfor %}
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name {{ domain }};
+
+    # Логи
+    access_log /var/log/nginx/streamapp-access.log;
+    error_log /var/log/nginx/streamapp-error.log;
+
+    # Прокси для API
+    location /api/ {
+        proxy_pass http://api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+    # Прокси для LiveKit WebSocket
+    location /rtc {
+        proxy_pass http://livekit_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+        proxy_buffering off;
+    }
+
+    # Прокси для LiveKit HTTP
+    location /livekit/ {
+        proxy_pass http://livekit_backend/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Прокси для Grafana
+    location /grafana/ {
+        proxy_pass http://localhost:3000/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+    # Прокси для Prometheus
+    location /prometheus/ {
+        proxy_pass http://localhost:9090/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+    # Прокси для Frontend (Vite dev server)
+    location / {
+        proxy_pass http://frontend_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+}
+
+# SSL конфигурация (если есть SSL сертификат)
+# server {
+#     listen 443 ssl http2;
+#     server_name {{ domain }};
+#
+#     ssl_certificate /path/to/certificate.crt;
+#     ssl_certificate_key /path/to/private.key;
+#
+#     access_log /var/log/nginx/streamapp-ssl-access.log;
+#     error_log /var/log/nginx/streamapp-ssl-error.log;
+#
+#     # Те же location блоки что и выше
+# }
+
