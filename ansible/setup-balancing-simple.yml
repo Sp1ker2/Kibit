@@ -1,0 +1,199 @@
+---
+# Упрощённая настройка балансировки через shell команды
+# PostgreSQL + NFS + Nginx
+
+- name: 1️⃣ Установка PostgreSQL на Server1
+  hosts: master
+  become: yes
+  tasks:
+    - name: 📦 Установка PostgreSQL
+      apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - python3-psycopg2
+        state: present
+        update_cache: yes
+
+    - name: 🚀 Запуск PostgreSQL
+      systemd:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: 🗄️ Создание БД и пользователя через SQL
+      shell: |
+        sudo -u postgres psql <<EOF
+        -- Создаём БД если нет
+        SELECT 'CREATE DATABASE livekit_stream' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'livekit_stream')\gexec
+        
+        -- Создаём пользователя если нет
+        DO \$\$
+        BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'livekit_user') THEN
+            CREATE USER livekit_user WITH ENCRYPTED PASSWORD 'LiveKit2024SecurePass';
+          END IF;
+        END
+        \$\$;
+        
+        -- Выдаём права
+        GRANT ALL PRIVILEGES ON DATABASE livekit_stream TO livekit_user;
+        EOF
+      args:
+        executable: /bin/bash
+
+    - name: 🔧 Настройка удалённого доступа
+      shell: |
+        # PostgreSQL конфиг
+        sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/14/main/postgresql.conf
+        
+        # Разрешаем подключения
+        grep -q "195.133.17.0/24" /etc/postgresql/14/main/pg_hba.conf || cat >> /etc/postgresql/14/main/pg_hba.conf <<EOF
+        host    livekit_stream    livekit_user    195.133.17.0/24     md5
+        host    livekit_stream    livekit_user    195.133.39.0/24     md5
+        EOF
+        
+        # Перезапускаем
+        systemctl restart postgresql
+        
+        # Проверяем порт
+        sleep 2
+        netstat -tuln | grep 5432
+
+- name: 2️⃣ Установка NFS на Server1
+  hosts: master
+  become: yes
+  tasks:
+    - name: 📦 Установка NFS сервера
+      apt:
+        name: nfs-kernel-server
+        state: present
+
+    - name: 📁 Создание папки recordings
+      file:
+        path: /www/wwwroot/LiveKit/recordings
+        state: directory
+        mode: '0777'
+
+    - name: 🔧 Настройка NFS экспорта
+      shell: |
+        # Удаляем старые записи
+        sed -i '/recordings/d' /etc/exports
+        
+        # Добавляем новую
+        echo "/www/wwwroot/LiveKit/recordings 195.133.17.179(rw,sync,no_subtree_check,no_root_squash) 195.133.39.17(rw,sync,no_subtree_check,no_root_squash) 195.133.39.33(rw,sync,no_subtree_check,no_root_squash) 195.133.39.41(rw,sync,no_subtree_check,no_root_squash)" >> /etc/exports
+        
+        # Применяем
+        exportfs -ra
+        systemctl restart nfs-kernel-server
+        
+        # Проверяем
+        showmount -e localhost
+
+- name: 3️⃣ Монтирование NFS на Server2-5
+  hosts: workers
+  become: yes
+  tasks:
+    - name: 📦 Установка NFS клиента
+      apt:
+        name: nfs-common
+        state: present
+
+    - name: 🔗 Монтирование NFS
+      shell: |
+        # Размонтируем если было
+        umount /www/wwwroot/LiveKit/recordings 2>/dev/null || true
+        
+        # Создаём папку
+        mkdir -p /www/wwwroot/LiveKit/recordings
+        
+        # Монтируем
+        mount -t nfs 195.133.17.131:/www/wwwroot/LiveKit/recordings /www/wwwroot/LiveKit/recordings
+        
+        # Добавляем в fstab
+        grep -q "195.133.17.131:/www/wwwroot/LiveKit/recordings" /etc/fstab || echo "195.133.17.131:/www/wwwroot/LiveKit/recordings /www/wwwroot/LiveKit/recordings nfs defaults 0 0" >> /etc/fstab
+        
+        # Проверяем
+        df -h | grep recordings
+
+- name: 4️⃣ Обновление кода на всех серверах
+  hosts: all
+  become: yes
+  tasks:
+    - name: 📁 Копирование db-postgres.js
+      copy:
+        src: ../streamApp/server/db-postgres.js
+        dest: /www/wwwroot/LiveKit/streamApp/server/db-postgres.js
+        mode: '0644'
+
+    - name: 📁 Копирование обновлённого api.js
+      copy:
+        src: ../streamApp/server/api.js
+        dest: /www/wwwroot/LiveKit/streamApp/server/api.js
+        mode: '0644'
+
+    - name: 📦 Установка pg драйвера
+      shell: |
+        cd /www/wwwroot/LiveKit/streamApp
+        npm install pg
+
+    - name: 🛑 Остановка старого API
+      shell: pkill -f 'node server/api.js' || true
+
+    - name: ⏱️ Пауза
+      pause:
+        seconds: 3
+
+    - name: 🚀 Запуск API с PostgreSQL
+      shell: |
+        cd /www/wwwroot/LiveKit/streamApp
+        USE_POSTGRES=true nohup node server/api.js > /tmp/api-postgres.log 2>&1 &
+      environment:
+        USE_POSTGRES: "true"
+
+    - name: ⏱️ Ожидание запуска
+      pause:
+        seconds: 5
+
+    - name: ✅ Проверка API
+      shell: |
+        echo "=== API Status ==="
+        ps aux | grep 'node server/api.js' | grep -v grep
+        echo ""
+        echo "=== API Response ==="
+        curl -s http://localhost:3001/api/room-list | head -100
+      register: api_status
+
+    - name: 📊 Результат
+      debug:
+        msg: "{{ api_status.stdout_lines }}"
+
+- name: 5️⃣ Обновление Nginx
+  hosts: master
+  become: yes
+  tasks:
+    - name: 📁 Копирование конфига с балансировкой
+      copy:
+        src: ../nginx-balancer.conf
+        dest: /etc/nginx/sites-available/kibitkostreamappv.pp.ua
+        backup: yes
+
+    - name: ✅ Тест конфига
+      command: nginx -t
+
+    - name: 🔄 Перезагрузка Nginx
+      systemd:
+        name: nginx
+        state: reloaded
+
+    - name: 📊 Проверка балансировки
+      shell: |
+        for i in {1..10}; do
+          curl -s https://kibitkostreamappv.pp.ua/api/room-list > /dev/null && echo "Request $i: OK"
+        done
+      register: balance_test
+
+    - name: ✅ Результат балансировки
+      debug:
+        msg: "{{ balance_test.stdout_lines }}"
+

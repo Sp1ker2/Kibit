@@ -1,0 +1,227 @@
+---
+# 🚀 Полная настройка балансировки на 5 серверах
+# PostgreSQL + NFS + Nginx балансировка
+
+- name: Шаг 1 - Установка PostgreSQL на мастере
+  hosts: master
+  become: yes
+  tasks:
+    - name: 📦 Установка PostgreSQL
+      apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+        state: present
+        update_cache: yes
+
+    - name: 📦 Установка python3-psycopg2 для Ansible
+      apt:
+        name: python3-psycopg2
+        state: present
+
+    - name: 🚀 Запуск PostgreSQL
+      systemd:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: 🗄️ Создание базы данных
+      become_user: postgres
+      postgresql_db:
+        name: livekit_stream
+        state: present
+
+    - name: 👤 Создание пользователя БД
+      become_user: postgres
+      postgresql_user:
+        name: livekit_user
+        password: LiveKit2024SecurePass
+        role_attr_flags: CREATEDB,NOSUPERUSER
+        state: present
+    
+    - name: 🔑 Выдача прав на БД
+      become_user: postgres
+      postgresql_privs:
+        database: livekit_stream
+        roles: livekit_user
+        privs: ALL
+        type: database
+        state: present
+
+    - name: 🔧 Настройка удалённого доступа - postgresql.conf
+      lineinfile:
+        path: /etc/postgresql/14/main/postgresql.conf
+        regexp: '^#?listen_addresses'
+        line: "listen_addresses = '*'"
+        backup: yes
+      notify: restart postgresql
+
+    - name: 🔧 Настройка удалённого доступа - pg_hba.conf
+      blockinfile:
+        path: /etc/postgresql/14/main/pg_hba.conf
+        block: |
+          # Разрешаем подключения с других серверов
+          host    livekit_stream    livekit_user    195.133.17.0/24     md5
+          host    livekit_stream    livekit_user    195.133.39.0/24     md5
+        backup: yes
+      notify: restart postgresql
+
+  handlers:
+    - name: restart postgresql
+      systemd:
+        name: postgresql
+        state: restarted
+
+- name: Шаг 2 - Установка NFS сервера на мастере
+  hosts: master
+  become: yes
+  tasks:
+    - name: 📦 Установка NFS сервера
+      apt:
+        name: nfs-kernel-server
+        state: present
+
+    - name: 📁 Создание папки recordings
+      file:
+        path: /www/wwwroot/LiveKit/recordings
+        state: directory
+        mode: '0777'
+        owner: root
+        group: root
+
+    - name: 🔧 Настройка экспорта NFS
+      lineinfile:
+        path: /etc/exports
+        line: "/www/wwwroot/LiveKit/recordings 195.133.17.179(rw,sync,no_subtree_check,no_root_squash) 195.133.39.17(rw,sync,no_subtree_check,no_root_squash) 195.133.39.33(rw,sync,no_subtree_check,no_root_squash) 195.133.39.41(rw,sync,no_subtree_check,no_root_squash)"
+        create: yes
+        backup: yes
+
+    - name: 🚀 Применение экспорта NFS
+      command: exportfs -ra
+
+    - name: 🚀 Запуск NFS сервера
+      systemd:
+        name: nfs-kernel-server
+        state: restarted
+        enabled: yes
+
+- name: Шаг 3 - Установка NFS клиента на workers
+  hosts: workers
+  become: yes
+  tasks:
+    - name: 📦 Установка NFS клиента
+      apt:
+        name: nfs-common
+        state: present
+
+    - name: 📁 Создание точки монтирования
+      file:
+        path: /www/wwwroot/LiveKit/recordings
+        state: directory
+        mode: '0777'
+
+    - name: 🔗 Монтирование NFS
+      mount:
+        path: /www/wwwroot/LiveKit/recordings
+        src: 195.133.17.131:/www/wwwroot/LiveKit/recordings
+        fstype: nfs
+        opts: defaults
+        state: mounted
+
+    - name: ✅ Проверка монтирования
+      command: df -h /www/wwwroot/LiveKit/recordings
+      register: nfs_check
+      changed_when: false
+
+    - name: 📊 Вывод статуса NFS
+      debug:
+        msg: "{{ nfs_check.stdout }}"
+
+- name: Шаг 4 - Обновление кода на всех серверах
+  hosts: all
+  become: yes
+  tasks:
+    - name: 📁 Копирование server файлов
+      copy:
+        src: "../streamApp/server/{{ item }}"
+        dest: /www/wwwroot/LiveKit/streamApp/server/{{ item }}
+        mode: '0644'
+      loop:
+        - api.js
+        - db.js
+        - db-postgres.js
+
+    - name: 📦 Установка pg драйвера
+      npm:
+        name: pg
+        path: /www/wwwroot/LiveKit/streamApp
+        state: present
+
+    - name: 🛑 Остановка старого API
+      shell: pkill -f 'node server/api.js' || true
+
+    - name: ⏱️ Ожидание остановки
+      pause:
+        seconds: 2
+
+    - name: 🚀 Запуск нового API с PostgreSQL
+      shell: |
+        cd /www/wwwroot/LiveKit/streamApp
+        USE_POSTGRES=true nohup node server/api.js > /tmp/api.log 2>&1 &
+      environment:
+        USE_POSTGRES: "true"
+
+    - name: ⏱️ Ожидание запуска
+      pause:
+        seconds: 3
+
+    - name: ✅ Проверка API
+      shell: curl -s http://localhost:3001/api/room-list | head -50
+      register: api_check
+      changed_when: false
+
+    - name: 📊 Статус API
+      debug:
+        msg: "{{ api_check.stdout }}"
+
+- name: Шаг 5 - Обновление Nginx на мастере
+  hosts: master
+  become: yes
+  tasks:
+    - name: 📁 Копирование Nginx конфига с балансировкой
+      copy:
+        src: ../nginx-balancer.conf
+        dest: /etc/nginx/sites-available/kibitkostreamappv.pp.ua
+        backup: yes
+
+    - name: ✅ Проверка конфига Nginx
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: 🔄 Перезагрузка Nginx
+      systemd:
+        name: nginx
+        state: reloaded
+      when: nginx_test.rc == 0
+
+- name: Шаг 6 - Финальная проверка
+  hosts: all
+  become: yes
+  tasks:
+    - name: 📊 Проверка статуса всех сервисов
+      shell: |
+        echo "=== Сервер: $(hostname) ==="
+        echo "PostgreSQL: $(systemctl is-active postgresql 2>/dev/null || echo 'N/A (worker)')"
+        echo "NFS Mount: $(df -h /www/wwwroot/LiveKit/recordings 2>/dev/null | grep -q '195.133.17.131' && echo 'Mounted' || echo 'Local')"
+        echo "API: $(ps aux | grep 'node server/api.js' | grep -v grep > /dev/null && echo 'Running' || echo 'Stopped')"
+        echo "LiveKit: $(ps aux | grep 'livekit-server' | grep -v grep > /dev/null && echo 'Running' || echo 'Stopped')"
+        echo "API Port: $(netstat -tuln | grep ':3001' > /dev/null && echo 'Listening' || echo 'Not listening')"
+        echo "LiveKit Port: $(netstat -tuln | grep ':7880' > /dev/null && echo 'Listening' || echo 'Not listening')"
+      register: final_status
+      changed_when: false
+
+    - name: ✅ Итоговый статус
+      debug:
+        msg: "{{ final_status.stdout_lines }}"
+

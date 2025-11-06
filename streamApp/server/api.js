@@ -7,7 +7,14 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
-import { userDB } from './db.js';
+
+// Выбираем БД: PostgreSQL для production, SQLite для dev
+const USE_POSTGRES = process.env.USE_POSTGRES === 'true';
+const dbModule = USE_POSTGRES ? './db-postgres.js' : './db.js';
+const { userDB } = await import(dbModule);
+
+console.log(`🗄️ Используется БД: ${USE_POSTGRES ? 'PostgreSQL' : 'SQLite'}`);
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -80,9 +87,9 @@ app.use(express.json());
 // ===== ЭНДПОИНТЫ ДЛЯ КОМНАТ (СПИСОК) =====
 
 // Получить все комнаты из БД
-app.get('/api/room-list', (req, res) => {
+app.get('/api/room-list', async (req, res) => {
   try {
-    const rooms = userDB.getAllRooms();
+    const rooms = await userDB.getAllRooms();
     res.json(rooms);
   } catch (error) {
     console.error('Ошибка получения комнат:', error);
@@ -91,7 +98,7 @@ app.get('/api/room-list', (req, res) => {
 });
 
 // Создать комнату
-app.post('/api/room-list', (req, res) => {
+app.post('/api/room-list', async (req, res) => {
   try {
     const { name, description } = req.body;
     
@@ -99,7 +106,7 @@ app.post('/api/room-list', (req, res) => {
       return res.status(400).json({ error: 'Введите название комнаты' });
     }
 
-    const room = userDB.createRoom(name, description);
+    const room = await userDB.createRoom(name, description);
     res.json(room);
   } catch (error) {
     console.error('Ошибка создания комнаты:', error);
@@ -108,7 +115,7 @@ app.post('/api/room-list', (req, res) => {
 });
 
 // Обновить комнату
-app.put('/api/room-list/:id', (req, res) => {
+app.put('/api/room-list/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
@@ -117,7 +124,7 @@ app.put('/api/room-list/:id', (req, res) => {
       return res.status(400).json({ error: 'Введите название комнаты' });
     }
 
-    const result = userDB.updateRoom(parseInt(id), name, description);
+    const result = await userDB.updateRoom(parseInt(id), name, description);
     res.json(result);
   } catch (error) {
     console.error('Ошибка обновления комнаты:', error);
@@ -126,10 +133,10 @@ app.put('/api/room-list/:id', (req, res) => {
 });
 
 // Удалить комнату
-app.delete('/api/room-list/:id', (req, res) => {
+app.delete('/api/room-list/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const success = userDB.deleteRoom(parseInt(id));
+    const success = await userDB.deleteRoom(parseInt(id));
     
     if (success) {
       res.json({ success: true });
@@ -145,7 +152,7 @@ app.delete('/api/room-list/:id', (req, res) => {
 // ===== ЭНДПОИНТЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
 
 // Авторизация
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password, room } = req.body;
     
@@ -153,12 +160,12 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(400).json({ error: 'Введите логин и пароль' });
     }
 
-    const user = userDB.authenticate(username, password);
+    const user = await userDB.authenticate(username, password);
     
     if (user) {
       // Сохраняем выбранную комнату для пользователя
       if (room) {
-        userDB.updateUserRoom(username, room);
+        await userDB.updateUserRoom(username, room);
         user.room_name = room;
         
         // 🔑 ЛОГИКА ПРАВ ДОСТУПА:
@@ -193,9 +200,9 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // Получить всех пользователей
-app.get('/api/users', (req, res) => {
+app.get('/api/users', async (req, res) => {
   try {
-    const users = userDB.getAllUsers();
+    const users = await userDB.getAllUsers();
     res.json(users);
   } catch (error) {
     console.error('Ошибка получения пользователей:', error);
@@ -222,16 +229,16 @@ app.post('/api/users', (req, res) => {
 });
 
 // Обновить пользователя
-app.put('/api/users/:id', (req, res) => {
+app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { username, password } = req.body;
+    const { username, password, role, room_name } = req.body;
     
     if (!username || !password) {
       return res.status(400).json({ error: 'Введите логин и пароль' });
     }
 
-    const user = userDB.updateUser(parseInt(id), username, password);
+    const user = await userDB.updateUser(parseInt(id), username, password, role, room_name);
     res.json(user);
   } catch (error) {
     console.error('Ошибка обновления пользователя:', error);
@@ -240,10 +247,10 @@ app.put('/api/users/:id', (req, res) => {
 });
 
 // Удалить пользователя
-app.delete('/api/users/:id', (req, res) => {
+app.delete('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const success = userDB.deleteUser(parseInt(id));
+    const success = await userDB.deleteUser(parseInt(id));
     
     if (success) {
       res.json({ success: true });

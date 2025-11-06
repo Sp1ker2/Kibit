@@ -31,10 +31,12 @@ export async function generateToken(
     // Импортируем jose динамически
     const { SignJWT } = await import('jose')
     
+    const now = Math.floor(Date.now() / 1000);
+    
     const token = await new SignJWT({
-      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60), // 24 hours
+      exp: now + (24 * 60 * 60), // 24 hours
       iss: LIVEKIT_API_KEY,
-      nbf: Math.floor(Date.now() / 1000),
+      nbf: now - (5 * 60), // Сдвигаем на 5 минут назад для допуска рассинхронизации
       sub: participantName,
       video: {
         room: roomName,

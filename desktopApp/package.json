@@ -1,0 +1,41 @@
+{
+  "name": "livekit-stream-recorder",
+  "productName": "LiveKit Stream Recorder",
+  "version": "1.0.0",
+  "description": "Desktop приложение для захвата и стриминга нескольких мониторов",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64",
+    "build-all": "electron-builder --win --mac --linux"
+  },
+  "keywords": ["livekit", "streaming", "recorder"],
+  "author": "LiveKit Team",
+  "license": "ISC",
+  "build": {
+    "appId": "com.livekit.streamrecorder",
+    "productName": "LiveKit Stream Recorder",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": ["portable"]
+    },
+    "portable": {
+      "artifactName": "LiveKit-Stream-Recorder-Portable.exe"
+    },
+    "files": [
+      "main.js",
+      "renderer.js",
+      "index.html",
+      "node_modules/**/*"
+    ]
+  },
+  "dependencies": {
+    "livekit-client": "^2.15.14"
+  },
+  "devDependencies": {
+    "electron": "^39.1.0",
+    "electron-builder": "^26.0.12"
+  }
+}
