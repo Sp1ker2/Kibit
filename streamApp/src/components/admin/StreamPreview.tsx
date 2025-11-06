@@ -36,7 +36,7 @@ export function StreamPreview({ roomName, onRoomReady }: StreamPreviewProps) {
         // Обработчик новых треков
         newRoom.on(RoomEvent.TrackSubscribed, (
           track: RemoteTrack,
-          publication: RemoteTrackPublication,
+          _publication: RemoteTrackPublication,
           participant: RemoteParticipant
         ) => {
           console.log('📹 Получен трек:', track.kind, 'от', participant.identity)

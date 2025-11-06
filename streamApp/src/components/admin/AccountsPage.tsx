@@ -19,6 +19,7 @@ interface Account {
   username: string
   password: string
   role?: string
+  room_name?: string
 }
 
 const ITEMS_PER_PAGE = 10
@@ -37,11 +38,29 @@ export function AccountsPage() {
   const [newUsername, setNewUsername] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [newRole, setNewRole] = useState<"admin" | "user">("user")
+  const [newRoom, setNewRoom] = useState("")
+  const [availableRooms, setAvailableRooms] = useState<{id: number, name: string, description: string}[]>([])
 
-  // Загружаем пользователей при монтировании
+  // Загружаем пользователей и комнаты при монтировании
   useEffect(() => {
     fetchAccounts()
+    fetchRooms()
   }, [])
+
+  const fetchRooms = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/room-list`)
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableRooms(data)
+        if (data.length > 0 && !newRoom) {
+          setNewRoom(data[0].name)
+        }
+      }
+    } catch (err) {
+      console.error('Ошибка загрузки комнат:', err)
+    }
+  }
 
   const fetchAccounts = async () => {
     try {
@@ -72,7 +91,8 @@ export function AccountsPage() {
         body: JSON.stringify({ 
           username: newUsername.trim(), 
           password: newPassword.trim(),
-          role: newRole
+          role: newRole,
+          room_name: newRoom
         }),
       })
 
@@ -82,6 +102,9 @@ export function AccountsPage() {
         setNewUsername("")
         setNewPassword("")
         setNewRole("user")
+        if (availableRooms.length > 0) {
+          setNewRoom(availableRooms[0].name)
+        }
         fetchAccounts() // Перезагружаем список
       } else {
         alert(data.error || "Ошибка создания пользователя")
@@ -204,6 +227,24 @@ export function AccountsPage() {
               </select>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="newRoom">Комната (организация)</Label>
+              <select
+                id="newRoom"
+                value={newRoom}
+                onChange={(e) => setNewRoom(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                required
+              >
+                <option value="">Выберите организацию</option>
+                {availableRooms.map((room) => (
+                  <option key={room.id} value={room.name}>
+                    {room.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <Button onClick={handleCreate} className="w-full">
               Создать
             </Button>
@@ -297,6 +338,11 @@ export function AccountsPage() {
                             }`}>
                               {account.role === 'admin' ? 'Админ' : 'Пользователь'}
                             </span>
+                            {account.room_name && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
+                                📍 {account.room_name}
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground">
                             Пароль: {account.password}

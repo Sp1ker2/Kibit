@@ -25,7 +25,7 @@ export function generateRoomName(username: string): string {
 export async function generateToken(
   roomName: string,
   participantName: string,
-  metadata?: string
+  _metadata?: string
 ): Promise<string> {
   try {
     // Импортируем jose динамически

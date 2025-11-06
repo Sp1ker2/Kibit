@@ -9,25 +9,75 @@ import { API_URL } from "@/config"
 
 interface UserStreamPageProps {
   username: string
+  room: string
   onLogout: () => void
 }
 
-export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
-  const [room, setRoom] = useState<Room | null>(null)
+export function UserStreamPage({ username, room, onLogout }: UserStreamPageProps) {
+  const [livekitRoom, setLivekitRoom] = useState<Room | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string>("")
   const videoRef = useRef<HTMLVideoElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
+  const recordingIntervalRef = useRef<number | null>(null)
+  const recordingCountRef = useRef<number>(0)
 
   useEffect(() => {
-    // Cleanup при выходе
+    // Cleanup при выходе - ТОЛЬКО disconnect комнаты
     return () => {
-      if (room) {
-        room.disconnect()
+      if (livekitRoom) {
+        livekitRoom.disconnect()
       }
+      // НЕ очищаем recordingIntervalRef здесь - он очищается в stopStream
     }
-  }, [room])
+  }, [livekitRoom])
+
+  // Функция для сохранения текущей записи
+  const saveCurrentRecording = async () => {
+    if (recordedChunksRef.current.length === 0) {
+      console.log("⚠️ Нет данных для сохранения")
+      return
+    }
+
+    try {
+      const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
+      const fileSize = blob.size
+      
+      console.log(`💾 Сохраняем запись #${recordingCountRef.current}, размер:`, (fileSize / 1024 / 1024).toFixed(2), "MB")
+      
+      // Создаем FormData для отправки
+      const formData = new FormData()
+      const timestamp = Date.now()
+      const filename = `${username}_${timestamp}_part${recordingCountRef.current}.webm`
+      
+      // ВАЖНО: текстовые поля ПЕРЕД файлом для multer!
+      formData.append('username', username)
+      formData.append('roomName', room) // Используем выбранную комнату
+      formData.append('timestamp', timestamp.toString())
+      formData.append('video', blob, filename) // Файл в конце!
+      
+      console.log(`📤 Отправляем: username=${username}, room=${room}, size=${(fileSize / 1024 / 1024).toFixed(2)}MB`)
+      
+      // Отправляем на сервер
+      const response = await fetch(`${API_URL}/api/recordings/upload`, {
+        method: 'POST',
+        body: formData
+      })
+      
+      if (response.ok) {
+        console.log(`✅ Запись #${recordingCountRef.current} успешно сохранена`)
+        recordingCountRef.current++
+      } else {
+        console.error("❌ Ошибка сохранения записи")
+      }
+      
+      // Очищаем буфер для следующей записи
+      recordedChunksRef.current = []
+    } catch (err) {
+      console.error("❌ Ошибка при сохранении:", err)
+    }
+  }
 
   const startStream = async () => {
     try {
@@ -93,6 +143,9 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
       // Устанавливаем состояние стриминга СРАЗУ
       setIsStreaming(true)
 
+      // Сбрасываем счетчик записей
+      recordingCountRef.current = 1
+
       // Начинаем запись
       try {
         const mediaRecorder = new MediaRecorder(stream, {
@@ -107,9 +160,32 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
           }
         }
         
-        mediaRecorder.start(1000) // Сохраняем каждую секунду
+        // Сохраняем данные каждую секунду в буфер
+        mediaRecorder.start(1000)
         mediaRecorderRef.current = mediaRecorder
         console.log("📹 Запись началась")
+        
+        // Устанавливаем интервал для сохранения каждые 5 минут (PRODUCTION)
+        const saveInterval = window.setInterval(() => {
+          console.log(`⏰ Прошло 5 минут, сохраняем запись #${recordingCountRef.current}`)
+          console.log(`📊 Накоплено данных: ${recordedChunksRef.current.length} чанков`)
+          
+          if (recordedChunksRef.current.length === 0) {
+            console.warn("⚠️ НЕТ ДАННЫХ для сохранения!")
+            return
+          }
+          
+          saveCurrentRecording().then(() => {
+            console.log("✅ Запись #" + recordingCountRef.current + " сохранена")
+          }).catch(err => {
+            console.error("❌ Ошибка сохранения:", err)
+          })
+        }, 5 * 60 * 1000) // 5 минут для продакшн
+        
+        recordingIntervalRef.current = saveInterval
+        
+        console.log("⏰ Автосохранение настроено: каждые 5 минут")
+        console.log("🔢 ID таймера:", recordingIntervalRef.current)
       } catch (err) {
         console.error("❌ Ошибка запуска записи:", err)
       }
@@ -159,7 +235,7 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
         throw new Error(`Не удалось подключиться к LiveKit серверу (${LIVEKIT_SERVER_URL}). Проверьте что сервер запущен на порту 7880 и Nginx настроен для проксирования WebSocket. Ошибка: ${connectError.message || connectError}`)
       }
       
-      setRoom(newRoom)
+      setLivekitRoom(newRoom)
 
       // Публикуем видео трек в комнату с настройками качества
       console.log("Публикуем видео трек...")
@@ -251,13 +327,13 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
       
       // Очищаем состояние при ошибке
       setIsStreaming(false)
-      if (room) {
+      if (livekitRoom) {
         try {
-        room.disconnect()
+        livekitRoom.disconnect()
         } catch (e) {
           console.error("Ошибка при отключении:", e)
         }
-        setRoom(null)
+        setLivekitRoom(null)
       }
       
       // Останавливаем треки если они были захвачены
@@ -276,41 +352,23 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
   const stopStream = async () => {
     console.log("🛑 Останавливаем стрим...")
     
+    // Останавливаем интервал автосохранения
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current)
+      recordingIntervalRef.current = null
+      console.log("⏰ Автосохранение остановлено")
+    }
+    
+    // Сохраняем последнюю запись
+    if (recordedChunksRef.current.length > 0) {
+      console.log("💾 Сохраняем последнюю запись...")
+      await saveCurrentRecording()
+    }
+    
     // Останавливаем запись
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
       console.log("📹 Запись остановлена")
-      
-      // Ждем завершения записи и сохраняем
-      mediaRecorderRef.current.onstop = async () => {
-        try {
-          const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
-          const fileSize = blob.size
-          
-          console.log("💾 Сохраняем запись, размер:", (fileSize / 1024 / 1024).toFixed(2), "MB")
-          
-          // Создаем FormData для отправки
-          const formData = new FormData()
-          const filename = `${username}_${Date.now()}.webm`
-          formData.append('video', blob, filename)
-          formData.append('username', username)
-          formData.append('roomName', generateRoomName(username))
-          
-          // Отправляем на сервер
-          const response = await fetch(`${API_URL}/api/recordings/upload`, {
-            method: 'POST',
-            body: formData
-          })
-          
-          if (response.ok) {
-            console.log("✅ Запись успешно сохранена")
-          } else {
-            console.error("❌ Ошибка сохранения записи")
-          }
-        } catch (err) {
-          console.error("❌ Ошибка при сохранении:", err)
-        }
-      }
     }
     
     // Останавливаем треки
@@ -321,9 +379,9 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
     }
     
     // Отключаемся от комнаты
-    if (room) {
-      room.disconnect()
-      setRoom(null)
+    if (livekitRoom) {
+      livekitRoom.disconnect()
+      setLivekitRoom(null)
     }
     
     setIsStreaming(false)
@@ -336,7 +394,9 @@ export function UserStreamPage({ username, onLogout }: UserStreamPageProps) {
       <header className="sticky top-0 z-50 w-full border-b bg-background backdrop-blur supports-[backdrop-filter]:bg-background/95">
         <div className="flex h-16 w-full items-center justify-between px-8">
           <div className="flex items-center gap-3">
-
+            <Badge variant="default" className="text-sm">
+              {room}
+            </Badge>
             <Badge variant="secondary" className="text-sm">
               {username}
             </Badge>

@@ -3,13 +3,14 @@ import { AdminHeader } from "./AdminHeader"
 import { LivePage } from "./LivePage"
 import { RecordingsPage } from "./RecordingsPage"
 import { AccountsPage } from "./AccountsPage"
+import { DatabasePage } from "./DatabasePage"
 
 interface AdminDashboardProps {
   onLogout: () => void
 }
 
 export function AdminDashboard({ onLogout }: AdminDashboardProps) {
-  const [activePage, setActivePage] = useState<"live" | "recordings" | "accounts">("live")
+  const [activePage, setActivePage] = useState<"live" | "recordings" | "accounts" | "rooms" | "database">("live")
   const [searchQuery, setSearchQuery] = useState("")
 
   const renderPage = () => {
@@ -20,6 +21,10 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
         return <RecordingsPage searchQuery={searchQuery} />
       case "accounts":
         return <AccountsPage />
+      case "rooms":
+        return <DatabasePage /> // Комнаты теперь в Database
+      case "database":
+        return <DatabasePage />
       default:
         return <LivePage searchQuery={searchQuery} />
     }

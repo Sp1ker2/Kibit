@@ -1,0 +1,148 @@
+---
+# Ansible Playbook для развёртывания PRODUCTION версии на 5 серверах
+# Server1 = мастер (БД + статика), остальные = workers (только API + LiveKit)
+
+- name: Развертывание Production LiveKit Stream App
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: 📡 Проверка подключения к серверам
+      ping:
+
+    # ===== ОБЩИЕ ЗАДАЧИ ДЛЯ ВСЕХ СЕРВЕРОВ =====
+    
+    - name: 📦 Создание структуры директорий
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ project_path }}"
+        - "{{ project_path }}/streamApp"
+        - "{{ project_path }}/livekit"
+        - "{{ project_path }}/recordings"
+
+    - name: 📁 Копирование streamApp (без node_modules и БД)
+      synchronize:
+        src: "../streamApp/"
+        dest: "{{ project_path }}/streamApp/"
+        delete: no
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=.git"
+          - "--exclude=*.log"
+          - "--exclude=*.db-journal"
+          - "--exclude=database.db"
+          - "--exclude=dist"
+      delegate_to: localhost
+
+    - name: 📁 Копирование dist (собранного фронтенда)
+      synchronize:
+        src: "../streamApp/dist/"
+        dest: "{{ project_path }}/streamApp/dist/"
+        delete: yes
+      delegate_to: localhost
+
+    - name: 📁 Копирование livekit конфигов
+      synchronize:
+        src: "../livekit/"
+        dest: "{{ project_path }}/livekit/"
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=*.log"
+      delegate_to: localhost
+
+    - name: 📦 Установка npm зависимостей (если нужно)
+      shell: |
+        cd {{ project_path }}/streamApp
+        if [ ! -d "node_modules" ]; then
+          npm install --production
+        fi
+
+    # ===== МАСТЕР СЕРВЕР (Server1) - БД + NGINX =====
+    
+    - name: 🗄️ Копирование БД на мастер сервер
+      copy:
+        src: "../streamApp/database.db"
+        dest: "{{ project_path }}/streamApp/database.db"
+        mode: '0644'
+      when: server_role == "master"
+
+    - name: 🌐 Копирование Nginx конфига на мастер
+      copy:
+        src: "../nginx-single-server.conf"
+        dest: "/etc/nginx/sites-available/{{ domain }}"
+        mode: '0644'
+      when: server_role == "master"
+
+    - name: 🔗 Активация Nginx конфига
+      file:
+        src: "/etc/nginx/sites-available/{{ domain }}"
+        dest: "/etc/nginx/sites-enabled/{{ domain }}"
+        state: link
+      when: server_role == "master"
+
+    - name: ✅ Проверка и перезагрузка Nginx
+      shell: |
+        nginx -t && systemctl reload nginx
+      when: server_role == "master"
+      ignore_errors: yes
+
+    # ===== ЗАПУСК СЕРВИСОВ НА ВСЕХ СЕРВЕРАХ =====
+    
+    - name: 🛑 Остановка старых процессов
+      shell: |
+        pkill -f "livekit-server" || true
+        pkill -f "node server/api.js" || true
+        sleep 2
+
+    - name: 🚀 Запуск LiveKit сервера
+      shell: |
+        cd {{ project_path }}/livekit
+        nohup livekit-server --dev --bind 0.0.0.0 --port {{ livekit_port }} > /tmp/livekit.log 2>&1 &
+        sleep 2
+
+    - name: 🚀 Запуск API сервера
+      shell: |
+        cd {{ project_path }}/streamApp
+        nohup node server/api.js > /tmp/api.log 2>&1 &
+        sleep 2
+
+    # ===== ПРОВЕРКА СТАТУСА =====
+    
+    - name: ✅ Проверка портов
+      shell: |
+        echo "=== Порты ==="
+        netstat -tuln | grep -E '{{ api_port }}|{{ livekit_port }}' || ss -tuln | grep -E '{{ api_port }}|{{ livekit_port }}'
+        echo ""
+        echo "=== Процессы ==="
+        ps aux | grep -E 'livekit-server|node server/api.js' | grep -v grep
+      register: status_check
+      changed_when: false
+      failed_when: false
+
+    - name: 📊 Вывод статуса
+      debug:
+        msg: "{{ status_check.stdout_lines }}"
+
+    # ===== ИТОГОВЫЙ ОТЧЁТ =====
+    
+    - name: 📋 Финальная проверка
+      shell: |
+        echo "🖥️  Сервер: {{ inventory_hostname }}"
+        echo "📍 Роль: {{ server_role }}"
+        echo "🌐 LiveKit: $(pgrep -f livekit-server > /dev/null && echo '✅ Запущен' || echo '❌ Не запущен')"
+        echo "🔌 API: $(pgrep -f 'node server/api.js' > /dev/null && echo '✅ Запущен' || echo '❌ Не запущен')"
+        if [ "{{ server_role }}" = "master" ]; then
+          echo "🗄️  База данных: $([ -f {{ project_path }}/streamApp/database.db ] && echo '✅ Найдена' || echo '❌ Не найдена')"
+          echo "📁 Статика: $([ -d {{ project_path }}/streamApp/dist ] && echo '✅ Найдена' || echo '❌ Не найдена')"
+        fi
+      register: final_status
+      changed_when: false
+
+    - name: ✅ Итоговый статус
+      debug:
+        msg: "{{ final_status.stdout_lines }}"
+

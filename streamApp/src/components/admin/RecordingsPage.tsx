@@ -16,10 +16,13 @@ import { API_URL } from "@/config"
 interface Recording {
   id: string
   filename: string
+  path: string  // Путь: комната/username/YYYY-MM-DD/filename.webm
   username: string
+  roomName?: string  // Комната
   size: number
   duration: number
   date: string
+  dateFolder: string  // YYYY-MM-DD
   timestamp: number
 }
 
@@ -35,6 +38,7 @@ export function RecordingsPage({ searchQuery }: RecordingsPageProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [selectedRecording, setSelectedRecording] = useState<Recording | null>(null)
+  const [selectedRoom, setSelectedRoom] = useState<string>("all")
   const isFirstLoadRef = useRef(true)
 
   // Загружаем список записей
@@ -99,8 +103,15 @@ export function RecordingsPage({ searchQuery }: RecordingsPageProps) {
     return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
   }
 
-  // Фильтрация записей по поисковому запросу (по нику и дате)
+  // Получаем список уникальных комнат
+  const rooms = Array.from(new Set(allRecordings.map(r => r.roomName || 'unknown')))
+  
+  // Фильтрация записей по комнате и поисковому запросу
   const filteredRecordings = allRecordings.filter((recording) => {
+    // Фильтр по комнате
+    if (selectedRoom !== "all" && recording.roomName !== selectedRoom) return false
+    
+    // Фильтр по поиску (по нику и дате)
     if (!searchQuery.trim()) return true
     const query = searchQuery.toLowerCase()
     const username = recording.username.toLowerCase()
@@ -118,12 +129,38 @@ export function RecordingsPage({ searchQuery }: RecordingsPageProps) {
   const endIndex = startIndex + ITEMS_PER_PAGE
   const currentRecordings = filteredRecordings.slice(startIndex, endIndex)
 
-  const handleDownload = (filename: string) => {
-    window.open(`${API_URL}/api/recordings/${filename}`, '_blank')
+  const handleDownload = (path: string) => {
+    window.open(`${API_URL}/api/recordings/download/${path}`, '_blank')
   }
 
   return (
     <div className="space-y-6">
+      {/* Фильтр по комнатам */}
+      {!loading && rooms.length > 0 && (
+        <div className="flex gap-2 items-center">
+          <span className="text-sm text-muted-foreground">Комната:</span>
+          <div className="flex gap-2">
+            <Button
+              variant={selectedRoom === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedRoom("all")}
+            >
+              Все ({allRecordings.length})
+            </Button>
+            {rooms.map((room) => (
+              <Button
+                key={room}
+                variant={selectedRoom === room ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedRoom(room)}
+              >
+                📍 {room} ({allRecordings.filter(r => r.roomName === room).length})
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+      
       {/* Состояние загрузки */}
       {loading && allRecordings.length === 0 && (
         <div className="flex justify-center items-center py-20">
@@ -161,7 +198,7 @@ export function RecordingsPage({ searchQuery }: RecordingsPageProps) {
                 {/* Превью видео */}
                 <div className="relative aspect-video bg-black overflow-hidden group">
                   <video
-                    src={`${API_URL}/api/recordings/stream/${recording.filename}#t=0.1`}
+                    src={`${API_URL}/api/recordings/stream/${recording.path}#t=0.1`}
                     className="w-full h-full object-cover"
                     preload="metadata"
                     muted
@@ -174,18 +211,23 @@ export function RecordingsPage({ searchQuery }: RecordingsPageProps) {
                 {/* Информация */}
                 <div className="px-2 py-1">
                   <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <h3 className="font-medium text-sm text-foreground">
-                      {recording.username.length > 12 
-                        ? `${recording.username.slice(0, 12)}...` 
-                        : recording.username}
-                    </h3>
+                    <div className="flex flex-col gap-0.5">
+                      <h3 className="font-medium text-sm text-foreground">
+                        {recording.username.length > 10 
+                          ? `${recording.username.slice(0, 10)}...` 
+                          : recording.username}
+                      </h3>
+                      {recording.roomName && (
+                        <span className="text-xs text-green-400">📍 {recording.roomName}</span>
+                      )}
+                    </div>
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-6 px-2 flex-shrink-0 text-xs"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDownload(recording.filename)
+                        handleDownload(recording.path)
                       }}
                     >
                       <Download className="h-3 w-3 mr-1" />
@@ -265,7 +307,7 @@ export function RecordingsPage({ searchQuery }: RecordingsPageProps) {
       {/* Просмотр записи */}
       {selectedRecording && (
         <RecordingPlayer
-          filename={selectedRecording.filename}
+          path={selectedRecording.path}
           username={selectedRecording.username}
           onClose={() => setSelectedRecording(null)}
         />

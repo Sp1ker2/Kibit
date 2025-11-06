@@ -19,7 +19,7 @@ interface StreamCardProps {
 }
 
 export function StreamCard({ stream, onClick, onVideoReady }: StreamCardProps) {
-  const handleRoomReady = useCallback((room: Room, videoEl: HTMLVideoElement) => {
+  const handleRoomReady = useCallback((_room: Room, videoEl: HTMLVideoElement) => {
     onVideoReady(stream.name, videoEl)
   }, [stream.name, onVideoReady])
 

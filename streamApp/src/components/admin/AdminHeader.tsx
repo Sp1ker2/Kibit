@@ -11,8 +11,8 @@ import {
 
 interface AdminHeaderProps {
   onLogout: () => void
-  activePage: "live" | "recordings" | "accounts"
-  onPageChange: (page: "live" | "recordings" | "accounts") => void
+  activePage: "live" | "recordings" | "accounts" | "rooms" | "database"
+  onPageChange: (page: "live" | "recordings" | "accounts" | "rooms" | "database") => void
   searchQuery: string
   onSearchChange: (query: string) => void
 }
@@ -75,6 +75,30 @@ export function AdminHeader({ onLogout, activePage, onPageChange, searchQuery, o
                   }`}
                 >
                   Аккаунты
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink 
+                  onClick={() => onPageChange("rooms")}
+                  className={`${navigationMenuTriggerStyle()} cursor-pointer ${
+                    activePage === "rooms" 
+                      ? "text-foreground bg-accent" 
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Комнаты
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink 
+                  onClick={() => onPageChange("database")}
+                  className={`${navigationMenuTriggerStyle()} cursor-pointer ${
+                    activePage === "database" 
+                      ? "text-foreground bg-accent" 
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  🗄️ База данных
                 </NavigationMenuLink>
               </NavigationMenuItem>
             </NavigationMenuList>

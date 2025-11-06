@@ -5,12 +5,12 @@ import { X } from "lucide-react"
 import { API_URL } from "@/config"
 
 interface RecordingPlayerProps {
-  filename: string
+  path: string  // Путь: username/YYYY-MM-DD/filename.webm
   username: string
   onClose: () => void
 }
 
-export function RecordingPlayer({ filename, username, onClose }: RecordingPlayerProps) {
+export function RecordingPlayer({ path, username, onClose }: RecordingPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
   // Закрытие по ESC
@@ -48,7 +48,7 @@ export function RecordingPlayer({ filename, username, onClose }: RecordingPlayer
               controls
               autoPlay
               className="w-full h-full"
-              src={`${API_URL}/api/recordings/stream/${filename}`}
+              src={`${API_URL}/api/recordings/stream/${path}`}
             >
               Ваш браузер не поддерживает воспроизведение видео.
             </video>
