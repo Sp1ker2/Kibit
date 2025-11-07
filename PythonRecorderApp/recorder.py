@@ -69,14 +69,17 @@ class LiveKitRecorder:
         # Логин
         tk.Label(self.login_frame, text="Логин:", 
                 font=('Segoe UI', 10), fg='#9ca3af', bg='#2a2a2a').pack(pady=(20,5))
-        self.username_entry = tk.Entry(self.login_frame, width=50, font=('Segoe UI', 11))
-        self.username_entry.pack()
+        self.username_entry = tk.Entry(self.login_frame, width=50, font=('Segoe UI', 11),
+                                       bg='white', fg='black', relief=tk.SOLID, bd=1)
+        self.username_entry.pack(pady=5)
+        self.username_entry.focus()  # Автофокус на логин
         
         # Пароль
         tk.Label(self.login_frame, text="Пароль:", 
                 font=('Segoe UI', 10), fg='#9ca3af', bg='#2a2a2a').pack(pady=(20,5))
-        self.password_entry = tk.Entry(self.login_frame, width=50, show='●', font=('Segoe UI', 11))
-        self.password_entry.pack()
+        self.password_entry = tk.Entry(self.login_frame, width=50, show='●', font=('Segoe UI', 11),
+                                       bg='white', fg='black', relief=tk.SOLID, bd=1)
+        self.password_entry.pack(pady=5)
         
         # Кнопка входа
         self.login_btn = tk.Button(self.login_frame, text="Войти", 
