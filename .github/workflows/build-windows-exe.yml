@@ -20,14 +20,13 @@ jobs:
         
     - name: Install dependencies
       run: |
-        cd PythonRecorderApp
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install mss opencv-python numpy requests Pillow pystray pyinstaller
         
     - name: Build EXE with PyInstaller
+      working-directory: PythonRecorderApp
       run: |
-        cd PythonRecorderApp
-        pyinstaller build.spec --noconfirm --clean
+        pyinstaller recorder.py --onefile --windowed --name LiveKitRecorder --clean
         
     - name: Upload EXE artifact
       uses: actions/upload-artifact@v3
