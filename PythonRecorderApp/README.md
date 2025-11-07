@@ -152,3 +152,4 @@ PythonRecorderApp/
 
 **Просто запусти BUILD.bat на Windows и получи exe!** 🚀
 
+

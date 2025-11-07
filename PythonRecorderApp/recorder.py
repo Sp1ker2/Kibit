@@ -13,6 +13,8 @@ import numpy as np
 import requests
 import threading
 import time
+import os
+import tempfile
 from datetime import datetime
 import io
 import sys
@@ -238,8 +240,6 @@ class LiveKitRecorder:
     
     def recording_loop(self):
         """Захват кадров и запись в видео"""
-        import tempfile
-        
         # Создаём временный файл
         self.current_video_file = tempfile.mktemp(suffix='.mp4')
         
@@ -314,9 +314,7 @@ class LiveKitRecorder:
     def save_current_video(self):
         """Сохранение текущего видео на сервер"""
         try:
-            # Останавливаем запись временно
-            was_recording = self.is_recording
-            
+            # Закрываем текущий VideoWriter
             if self.video_writer:
                 self.video_writer.release()
                 self.video_writer = None
@@ -361,9 +359,27 @@ class LiveKitRecorder:
                 else:
                     print(f"❌ Ошибка загрузки: {response.status_code}")
             
-            # Продолжаем запись если надо
-            if was_recording:
-                self.recording_loop()
+            # Пересоздаём VideoWriter для продолжения записи
+            if self.is_recording:
+                with mss.mss() as sct:
+                    monitors = [sct.monitors[i] for i in self.selected_screens]
+                    
+                    if len(monitors) == 1:
+                        mon = monitors[0]
+                        width, height = mon['width'], mon['height']
+                    else:
+                        width = sum(m['width'] for m in monitors)
+                        height = max(m['height'] for m in monitors)
+                    
+                    # Новый временный файл
+                    self.current_video_file = tempfile.mktemp(suffix='.mp4')
+                    
+                    # Создаём новый VideoWriter
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    self.video_writer = cv2.VideoWriter(
+                        self.current_video_file, fourcc, 30.0, (width, height)
+                    )
+                    print(f"🔄 Продолжаем запись в новый файл")
                 
         except Exception as e:
             print(f"❌ Ошибка сохранения: {e}")
@@ -436,4 +452,5 @@ if __name__ == "__main__":
     import os
     app = LiveKitRecorder()
     app.run()
+
 
