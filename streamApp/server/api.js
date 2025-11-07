@@ -44,10 +44,19 @@ const storage = multer.diskStorage({
     // Получаем данные из запроса
     const username = req.body.username || 'unknown';
     const roomName = req.body.roomName || 'unknown';
+    const timestamp = req.body.timestamp;
     
-    // Получаем текущую дату в формате YYYY-MM-DD
-    const now = new Date();
-    const dateFolder = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    // Получаем дату из timestamp клиента (если есть) или текущую
+    let dateFolder;
+    if (timestamp) {
+      const clientDate = new Date(parseInt(timestamp));
+      dateFolder = clientDate.toISOString().split('T')[0]; // YYYY-MM-DD из timestamp клиента
+      console.log(`📅 Используем дату клиента: ${dateFolder}`);
+    } else {
+      const now = new Date();
+      dateFolder = now.toISOString().split('T')[0]; // YYYY-MM-DD с сервера
+      console.log(`📅 Используем дату сервера: ${dateFolder}`);
+    }
     
     // Создаем путь: recordings/комната/username/YYYY-MM-DD
     const roomDir = join(RECORDINGS_DIR, roomName);
@@ -397,10 +406,10 @@ app.get('/api/recordings', async (req, res) => {
     for (const item of items) {
       const itemPath = join(RECORDINGS_DIR, item);
       const itemStat = await fs.stat(itemPath);
-      
+          
       // СЛУЧАЙ 1: Это файл в корне (старая структура - архив)
       if (itemStat.isFile() && item.endsWith('.webm')) {
-        // Извлекаем username из имени файла (username_timestamp.webm)
+          // Извлекаем username из имени файла (username_timestamp.webm)
         const [username] = item.split('_');
         const timestampMatch = item.match(/_(\d+)\./);
         const timestamp = timestampMatch ? parseInt(timestampMatch[1]) : itemStat.mtimeMs;
@@ -462,15 +471,15 @@ app.get('/api/recordings', async (req, res) => {
                     
                     recordings.push({
                       id: `${roomName}/${username}/${dateFolder}/${file}`,
-                      filename: file,
+            filename: file,
                       path: `${roomName}/${username}/${dateFolder}/${file}`,
                       username: username,
                       roomName: roomName, // Добавляем комнату
-                      size: stats.size,
+            size: stats.size,
                       duration: 0,
-                      date: stats.mtime.toISOString(),
+            date: stats.mtime.toISOString(),
                       dateFolder: dateFolder,
-                      timestamp
+            timestamp
                     });
                   }
                 }

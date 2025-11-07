@@ -212,11 +212,11 @@ export function RecordingsPage({ searchQuery }: RecordingsPageProps) {
                 <div className="px-2 py-1">
                   <div className="flex items-center justify-between gap-2 mb-0.5">
                     <div className="flex flex-col gap-0.5">
-                      <h3 className="font-medium text-sm text-foreground">
+                    <h3 className="font-medium text-sm text-foreground">
                         {recording.username.length > 10 
                           ? `${recording.username.slice(0, 10)}...` 
-                          : recording.username}
-                      </h3>
+                        : recording.username}
+                    </h3>
                       {recording.roomName && (
                         <span className="text-xs text-green-400">📍 {recording.roomName}</span>
                       )}

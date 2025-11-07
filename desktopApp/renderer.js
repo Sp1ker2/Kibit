@@ -29,6 +29,7 @@ const loginError = document.getElementById('loginError');
 const monitorList = document.getElementById('monitorList');
 const startStreamBtn = document.getElementById('startStreamBtn');
 const stopStreamBtn = document.getElementById('stopStreamBtn');
+const minimizeBtn = document.getElementById('minimizeBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 const preview = document.getElementById('preview');
 const placeholder = document.getElementById('placeholder');
@@ -102,11 +103,20 @@ async function showMonitorSelection() {
   try {
     const sources = await ipcRenderer.invoke('get-sources');
     
-    // Фильтруем только экраны
-    const screens = sources.filter(s => s.name.includes('Screen') || s.name.includes('Entire'));
+    console.log('📊 Получено источников:', sources.length);
+    sources.forEach(s => console.log('  -', s.name));
+    
+    // Показываем ВСЕ источники (экраны и окна)
+    const screens = sources;
     
     monitorList.innerHTML = '';
     selectedSources = [];
+
+    if (screens.length === 0) {
+      monitorList.innerHTML = '<div style="color: #ef4444; padding: 20px; text-align: center;">❌ Источники не найдены!<br>Попробуйте запустить от имени администратора</div>';
+      startStreamBtn.disabled = true;
+      return;
+    }
 
     screens.forEach(source => {
       const div = document.createElement('div');
@@ -158,6 +168,7 @@ startStreamBtn.addEventListener('click', async () => {
     status.className = 'status recording';
     status.textContent = '🔴 Идёт запись';
     startRecordingTimer();
+    ipcRenderer.send('recording-status', true);
   } catch (err) {
     console.error('Ошибка запуска стрима:', err);
     alert('Ошибка: ' + err.message);
@@ -173,6 +184,13 @@ stopStreamBtn.addEventListener('click', async () => {
   streamSection.classList.add('hidden');
   monitorSection.classList.remove('hidden');
   stopRecordingTimer();
+  ipcRenderer.send('recording-status', false);
+});
+
+// Сворачивание в трей
+minimizeBtn.addEventListener('click', () => {
+  ipcRenderer.send('minimize-to-tray');
+  console.log('📥 Свёрнуто в трей - запись продолжается в фоне!');
 });
 
 // Выход
@@ -192,24 +210,40 @@ logoutBtn.addEventListener('click', () => {
 async function startStreaming() {
   console.log('Запуск стриминга...');
   
-  // Захватываем выбранные экраны
+  // Захватываем выбранные экраны через нативный Electron API
   const streams = [];
   
   for (const source of selectedSources) {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: source.id,
-          minWidth: 1280,
-          maxWidth: 1920,
-          minHeight: 720,
-          maxHeight: 1080
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: source.id,
+            minWidth: 1280,
+            maxWidth: 1920,
+            minHeight: 720,
+            maxHeight: 1080,
+            // Важно! Продолжать захват даже когда окно скрыто
+            displaySurface: 'monitor'
+          }
         }
-      }
-    });
-    streams.push(stream);
+      });
+      
+      // Предотвращаем остановку при потере фокуса
+      stream.getTracks().forEach(track => {
+        track.addEventListener('ended', () => {
+          console.error('⚠️ Захват экрана остановлен!');
+          alert('Захват экрана был остановлен! Возможно вы переключили виртуальный стол.');
+        });
+      });
+      
+      streams.push(stream);
+    } catch (err) {
+      console.error('Ошибка захвата источника:', err);
+      throw err;
+    }
   }
 
   // Если несколько мониторов - объединяем в Canvas
@@ -234,17 +268,21 @@ async function startStreaming() {
   mediaRecorder.ondataavailable = (event) => {
     if (event.data.size > 0) {
       recordedChunks.push(event.data);
+      console.log(`📦 Получен chunk #${recordedChunks.length}, размер: ${(event.data.size / 1024).toFixed(2)} KB`);
     }
   };
 
   mediaRecorder.start(1000); // Сохраняем каждую секунду
   console.log('📹 Запись началась');
 
-  // Автосохранение каждые 5 минут
+  // Автосохранение каждые 30 секунд (ТЕСТ)
   recordingInterval = setInterval(async () => {
-    console.log('⏰ 5 минут прошло, сохраняем...');
+    console.log('⏰ 30 секунд прошло, сохраняем...');
+    console.log('📦 Накоплено chunks:', recordedChunks.length);
     await saveRecording();
-  }, 5 * 60 * 1000);
+  }, 30 * 1000); // 30 секунд для теста
+  
+  console.log('⏰ Автосохранение настроено: каждые 30 секунд (тест)');
 
   // Подключаемся к LiveKit для live просмотра
   await connectToLiveKit(finalStream);
@@ -357,8 +395,11 @@ async function generateToken(roomName, participantName) {
 
 // Сохранение записи
 async function saveRecording() {
+  console.log('💾 Вызвана функция saveRecording()');
+  console.log('📦 Chunks в буфере:', recordedChunks.length);
+  
   if (recordedChunks.length === 0) {
-    console.log('⚠️ Нет данных');
+    console.log('⚠️ Нет данных для сохранения');
     return;
   }
 
@@ -366,7 +407,8 @@ async function saveRecording() {
     const blob = new Blob(recordedChunks, { type: 'video/webm' });
     const fileSize = blob.size;
     
-    console.log(`💾 Сохраняем ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`💾 Создан blob, размер: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`📤 Отправляем на сервер: ${API_URL}/api/recordings/upload`);
 
     const formData = new FormData();
     const timestamp = Date.now();

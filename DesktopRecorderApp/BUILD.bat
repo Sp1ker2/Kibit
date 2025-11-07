@@ -45,3 +45,4 @@ echo Можно копировать на любой Windows ПК!
 echo.
 pause
 
+
