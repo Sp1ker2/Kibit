@@ -4,3 +4,29 @@ livekit
 *.db
 database.db
 streamApp/database.db
+
+# Desktop приложения - бинарники и node_modules
+desktopApp/node_modules/
+desktopApp/dist/
+DesktopRecorderApp/bin/
+DesktopRecorderApp/obj/
+PythonRecorderApp/dist/
+PythonRecorderApp/build/
+PythonRecorderApp/__pycache__/
+
+# Большие EXE файлы
+*.exe
+!PythonRecorderApp/BUILD.bat
+!DesktopRecorderApp/BUILD.bat
+
+# Python
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
