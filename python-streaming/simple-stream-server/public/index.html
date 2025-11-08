@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream Viewer - Кімнати</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 800px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2.5em;
+        }
+        
+        .rooms-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .room-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+            text-align: center;
+        }
+        
+        .room-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .room-name {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .room-viewers {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: #4ade80;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .no-rooms {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+            font-size: 1.2em;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Активні Стріми</h1>
+        <div id="rooms-container" class="loading">Завантаження...</div>
+    </div>
+
+    <script>
+        async function loadRooms() {
+            try {
+                const response = await fetch('/api/rooms');
+                const rooms = await response.json();
+                
+                const container = document.getElementById('rooms-container');
+                
+                if (!Array.isArray(rooms) || rooms.length === 0) {
+                    container.className = 'no-rooms';
+                    container.innerHTML = '📭 Немає активних стрімів';
+                    return;
+                }
+                
+                container.className = 'rooms-grid';
+                container.innerHTML = rooms.map(room => `
+                    <div class="room-card" onclick="openRoom('${room.room}')">
+                        <div class="room-name">${room.room}</div>
+                        <div class="room-viewers">
+                            <span class="status-indicator"></span>
+                            Стрімер: ${room.username || 'Невідомо'}<br>
+                            Глядачів: ${room.viewers}
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Помилка завантаження кімнат:', error);
+                document.getElementById('rooms-container').innerHTML = 
+                    '<div class="no-rooms">❌ Помилка завантаження</div>';
+            }
+        }
+        
+        function openRoom(roomName) {
+            window.location.href = `/viewer.html?room=${encodeURIComponent(roomName)}`;
+        }
+        
+        // Завантажуємо кімнати
+        loadRooms();
+        
+        // Оновлюємо кожні 3 секунди
+        setInterval(loadRooms, 3000);
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            overflow: hidden;
+        }
+        
+        #video-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        
+        #video-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        
+        .status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px 25px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 1000;
+        }
+        
+        .status.connected {
+            border-left: 4px solid #4ade80;
+        }
+        
+        .status.disconnected {
+            border-left: 4px solid #ef4444;
+        }
+        
+        .back-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(102, 126, 234, 0.9);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 1000;
+            transition: background 0.3s;
+        }
+        
+        .back-button:hover {
+            background: rgba(102, 126, 234, 1);
+        }
+        
+        .room-name {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <button class="back-button" onclick="goBack()">← Назад до списку</button>
+    <div class="status disconnected" id="status">⏳ Підключення...</div>
+    <div class="room-name" id="room-name"></div>
+    
+    <div id="video-container">
+        <canvas id="video-canvas"></canvas>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const roomName = params.get('room');
+        const roomTitle = document.getElementById('room-name');
+        if (!roomName) {
+            roomTitle.textContent = 'Кімнату не вказано';
+        } else {
+            roomTitle.textContent = `Кімната: ${roomName}`;
+        }
+        
+        const canvas = document.getElementById('video-canvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+        
+        let ws;
+        let reconnectTimeout;
+        
+        function connect() {
+            if (!roomName) {
+                statusEl.textContent = '❌ Кімната не вказана';
+                statusEl.className = 'status disconnected';
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}?room=${roomName}&role=viewer`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                console.log('✅ Підключено до стріму');
+                statusEl.textContent = '🟢 Підключено';
+                statusEl.className = 'status connected';
+                clearTimeout(reconnectTimeout);
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    
+                    if (message.type === 'info') {
+                        if (message.username) {
+                            roomTitle.textContent = `Кімната: ${roomName} • Стрімер: ${message.username}`;
+                        }
+                        if (typeof message.viewers === 'number') {
+                            statusEl.textContent = `🟢 Підключено | Глядачів: ${message.viewers}`;
+                        }
+                        return;
+                    }
+
+                    if (message.type === 'frame') {
+                        // Отримали кадр
+                        const img = new Image();
+                        img.onload = () => {
+                            // Масштабуємо canvas під розмір зображення
+                            if (canvas.width !== img.width || canvas.height !== img.height) {
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                            }
+                            ctx.drawImage(img, 0, 0);
+                        };
+                        img.src = 'data:image/jpeg;base64,' + message.data;
+                    } else if (message.type === 'stream_ended') {
+                        statusEl.textContent = '⏸️ Стрім завершено';
+                        statusEl.className = 'status disconnected';
+                    }
+                } catch (e) {
+                    console.error('Помилка обробки повідомлення:', e);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket помилка:', error);
+                statusEl.textContent = '❌ Помилка підключення';
+                statusEl.className = 'status disconnected';
+            };
+            
+            ws.onclose = () => {
+                console.log('🔌 З'єднання закрито');
+                statusEl.textContent = '🔴 Відключено';
+                statusEl.className = 'status disconnected';
+                
+                // Спроба переподключення через 3 секунди
+                reconnectTimeout = setTimeout(connect, 3000);
+            };
+        }
+        
+        function goBack() {
+            if (ws) ws.close();
+            window.location.href = '/';
+        }
+        
+        // Запускаємо підключення
+        connect();
+    </script>
+</body>
+</html>
+
