@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
+import { uploadFileToDrive, GOOGLE_DRIVE_ENABLED } from './storage/drive.js';
 
 // Выбираем БД: PostgreSQL для production, SQLite для dev
 const USE_POSTGRES = process.env.USE_POSTGRES === 'true';
@@ -38,39 +39,21 @@ if (!existsSync(RECORDINGS_DIR)) {
   console.log('📁 Папка recordings создана');
 }
 
-// Настройка multer для загрузки файлов с организацией по папкам: комната/username/дата
+// Настройка multer для загрузки файлов во временную папку (локальный /tmp)
+// Это предотвращает зависание при записи больших файлов в NFS
+const TEMP_UPLOAD_DIR = '/tmp/streamapp-uploads';
+if (!existsSync(TEMP_UPLOAD_DIR)) {
+  mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
+  console.log('📁 Создана временная папка для загрузок:', TEMP_UPLOAD_DIR);
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    // Получаем данные из запроса
-    const username = req.body.username || 'unknown';
-    const roomName = req.body.roomName || 'unknown';
-    
-    // Получаем текущую дату в формате YYYY-MM-DD
-    const now = new Date();
-    const dateFolder = now.toISOString().split('T')[0]; // YYYY-MM-DD
-    
-    // Создаем путь: recordings/комната/username/YYYY-MM-DD
-    const roomDir = join(RECORDINGS_DIR, roomName);
-    const userDir = join(roomDir, username);
-    const dateDir = join(userDir, dateFolder);
-    
-    // Создаем папки если их нет
-    if (!existsSync(roomDir)) {
-      mkdirSync(roomDir, { recursive: true });
-      console.log(`📁 Создана папка комнаты: ${roomName}`);
-    }
-    if (!existsSync(userDir)) {
-      mkdirSync(userDir, { recursive: true });
-      console.log(`📁 Создана папка пользователя: ${username}`);
-    }
-    if (!existsSync(dateDir)) {
-      mkdirSync(dateDir, { recursive: true });
-      console.log(`📁 Создана папка даты: ${dateFolder}`);
-    }
-    
-    cb(null, dateDir);
+    // Пишем сначала в локальный /tmp для быстрой записи
+    cb(null, TEMP_UPLOAD_DIR);
   },
   filename: function (req, file, cb) {
+    // Сохраняем оригинальное имя файла
     cb(null, file.originalname);
   }
 });
@@ -353,10 +336,13 @@ app.get('/api/rooms/:roomName', async (req, res) => {
 
 // Загрузить запись
 app.post('/api/recordings/upload', upload.single('video'), async (req, res) => {
+  let tempFilePath = null;
+  
   try {
     console.log('📥 Получен запрос на загрузку записи');
     console.log('📋 Body:', req.body);
     console.log('📁 File:', req.file ? `${req.file.filename} (${req.file.size} bytes)` : 'NO FILE');
+    console.log(`☁️  Google Drive включен: ${GOOGLE_DRIVE_ENABLED}`);
     
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -364,25 +350,111 @@ app.post('/api/recordings/upload', upload.single('video'), async (req, res) => {
 
     const { username, roomName, timestamp } = req.body;
     const filename = req.file.filename;
-    const filePath = req.file.path;
+    tempFilePath = req.file.path; // Файл во временной папке /tmp
     const fileSize = req.file.size;
 
-    console.log(`💾 Запись сохранена: ${filename}`);
+    console.log(`💾 Файл получен во временной папке: ${tempFilePath}`);
     console.log(`   👤 Username: ${username || 'НЕ УКАЗАН'}`);
     console.log(`   📍 Комната: ${roomName || 'НЕ УКАЗАНА'}`);
-    console.log(`   📂 Путь: ${filePath}`);
     console.log(`   📊 Размер: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
 
+    // Получаем текущую дату в формате YYYY-MM-DD
+    const now = new Date();
+    const dateFolder = now.toISOString().split('T')[0];
+
+    let uploadResult = null;
+    let finalFilePath = null;
+
+    // Если Google Drive включен, загружаем туда АСИНХРОННО (в фоне)
+    // Сначала сохраняем файл локально, затем загружаем в Drive в фоне
+    // Это предотвращает timeout от nginx при долгой загрузке в Google Drive
+    
+    // Подготовка путей для локального сохранения
+    const roomDir = join(RECORDINGS_DIR, roomName || 'unknown');
+    const userDir = join(roomDir, username || 'unknown');
+    const dateDir = join(userDir, dateFolder);
+    finalFilePath = join(dateDir, filename);
+    
+    // Создаем папки если их нет
+    if (!existsSync(roomDir)) {
+      mkdirSync(roomDir, { recursive: true });
+      console.log(`📁 Создана папка комнаты: ${roomName}`);
+    }
+    if (!existsSync(userDir)) {
+      mkdirSync(userDir, { recursive: true });
+      console.log(`📁 Создана папка пользователя: ${username}`);
+    }
+    if (!existsSync(dateDir)) {
+      mkdirSync(dateDir, { recursive: true });
+      console.log(`📁 Создана папка даты: ${dateFolder}`);
+    }
+    
+    // Переносим файл из /tmp в финальное местоположение (быстро)
+    console.log(`🚚 Переносим файл из ${tempFilePath} в ${finalFilePath}...`);
+    await fs.rename(tempFilePath, finalFilePath);
+    console.log(`✅ Файл успешно сохранен локально: ${finalFilePath}`);
+    
+    // Отправляем ответ клиенту СРАЗУ (не ждем Google Drive)
     res.json({
       success: true,
       filename,
       size: fileSize,
       username: username || 'unknown',
-      roomName: roomName || 'unknown'
+      roomName: roomName || 'unknown',
+      storage: GOOGLE_DRIVE_ENABLED ? 'google_drive_uploading' : 'local',
+      message: GOOGLE_DRIVE_ENABLED ? 'Файл сохранен локально, загрузка в Google Drive начата...' : 'Файл сохранен локально'
     });
+    
+    // Если Google Drive включен, загружаем в фоне (не блокируем ответ)
+    if (GOOGLE_DRIVE_ENABLED) {
+      // Запускаем загрузку в Google Drive асинхронно (не ждем)
+      (async () => {
+        try {
+          console.log('☁️  Начинаем асинхронную загрузку в Google Drive...');
+          const uploadStartTime = Date.now();
+          
+          uploadResult = await uploadFileToDrive(
+            finalFilePath, // Используем уже сохраненный файл
+            roomName || 'unknown',
+            username || 'unknown',
+            dateFolder,
+            filename
+          );
+          
+          const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
+          console.log(`✅ Загрузка в Google Drive завершена за ${uploadDuration} сек`);
+          console.log(`   📋 ID: ${uploadResult.fileId}`);
+          console.log(`   🔗 Ссылка: ${uploadResult.webViewLink || 'N/A'}`);
+          
+          // Удаляем локальный файл после успешной загрузки в Drive
+          await fs.unlink(finalFilePath);
+          console.log('🗑️  Локальный файл удален после загрузки в Drive');
+        } catch (driveError) {
+          console.error('❌ Ошибка асинхронной загрузки в Google Drive:', driveError);
+          console.error('   Stack:', driveError.stack);
+          console.log('⚠️  Файл остается в локальном хранилище');
+          // Файл остается локально при ошибке
+        }
+      })();
+      return; // Выходим, ответ уже отправлен
+    }
+    
+    // Если Google Drive отключен, файл уже сохранен локально выше
+    // Здесь ничего не делаем, ответ уже отправлен
   } catch (error) {
-    console.error('Ошибка загрузки записи:', error);
-    res.status(500).json({ error: 'Failed to save recording' });
+    console.error('❌ Ошибка загрузки записи:', error);
+    
+    // Удаляем временный файл если он остался
+    if (tempFilePath && existsSync(tempFilePath)) {
+      try {
+        await fs.unlink(tempFilePath);
+        console.log('🗑️  Временный файл удален');
+      } catch (unlinkError) {
+        console.error('⚠️  Не удалось удалить временный файл:', unlinkError);
+      }
+    }
+    
+    res.status(500).json({ error: 'Failed to save recording', details: error.message });
   }
 });
 

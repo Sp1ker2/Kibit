@@ -26,58 +26,80 @@ const server = useHttps
 const wss = new WebSocket.Server({ server });
 
 /**
- * rooms = Map<string, {
- *   publisher: WebSocket | null,
- *   frame: string | null,
- *   timestamp: number | null,
- *   username: string | null,
- *   connectedAt: number | null,
- *   viewers: Set<WebSocket>
- * }>
+ * room structure:
+ * {
+ *   publishers: Map<string, {
+ *     socket: WebSocket,
+ *     displayName: string,
+ *     frame: string | null,
+ *     connectedAt: number,
+ *     lastFrameAt: number | null
+ *   }>,
+ *   viewersByStreamer: Map<string, Set<WebSocket>>,
+ *   lobby: Set<WebSocket>
+ * }
  */
 const rooms = new Map();
 
-function ensureRoom(room) {
-  if (!rooms.has(room)) {
-    rooms.set(room, {
-      publisher: null,
-      frame: null,
-      timestamp: null,
-      username: null,
-      connectedAt: null,
-      viewers: new Set(),
+function sanitizeName(value, fallback = 'Streamer') {
+  if (!value) return fallback;
+  return String(value).trim().slice(0, 50) || fallback;
+}
+
+function getRoom(roomName) {
+  if (!rooms.has(roomName)) {
+    rooms.set(roomName, {
+      publishers: new Map(),
+      viewersByStreamer: new Map(),
+      lobby: new Set(),
     });
   }
-  return rooms.get(room);
+  return rooms.get(roomName);
 }
 
-function broadcastRoomInfo(room, roomData) {
-  if (!roomData) {
-    return;
-  }
-  const payload = JSON.stringify({
-    type: 'info',
-    room,
-    username: roomData.username,
-    connectedAt: roomData.connectedAt,
-    viewers: roomData.viewers.size,
-  });
-  roomData.viewers.forEach((viewer) => {
-    if (viewer.readyState === WebSocket.OPEN) {
-      viewer.send(payload);
+function sendJson(ws, payload) {
+  if (ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify(payload));
+    } catch (err) {
+      console.error('Failed to send ws message', err);
     }
+  }
+}
+
+function buildRoomSummary(roomName) {
+  const room = rooms.get(roomName);
+  if (!room) {
+    return { room: roomName, streamers: [] };
+  }
+  const streamers = Array.from(room.publishers.entries()).map(([username, info]) => ({
+    username,
+    displayName: info.displayName,
+    connectedAt: info.connectedAt,
+    lastFrameAt: info.lastFrameAt,
+    viewers: room.viewersByStreamer.get(username)?.size || 0,
+  }));
+  return { room: roomName, streamers };
+}
+
+function broadcastSummary(roomName) {
+  const summary = buildRoomSummary(roomName);
+  const payload = { type: 'summary', room: roomName, streamers: summary.streamers };
+  const room = rooms.get(roomName);
+  if (!room) return;
+  room.lobby.forEach((viewer) => sendJson(viewer, payload));
+  room.viewersByStreamer.forEach((viewers) => {
+    viewers.forEach((viewer) => sendJson(viewer, payload));
   });
 }
 
-function disconnectPublisher(roomData) {
-  if (!roomData) {
-    return;
+function cleanupRoom(roomName) {
+  const room = rooms.get(roomName);
+  if (!room) return;
+  if (room.publishers.size === 0 && room.viewersByStreamer.size === 0 && room.lobby.size === 0) {
+    rooms.delete(roomName);
+    console.log(`Room ${roomName} cleaned up`);
   }
-  roomData.publisher = null;
-  roomData.frame = null;
-  roomData.timestamp = null;
-  roomData.username = null;
-  roomData.connectedAt = null;
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -87,34 +109,38 @@ wss.on('connection', (ws, req) => {
   const room = url.searchParams.get('room');
   const role = url.searchParams.get('role') || 'viewer';
   const nameParam = url.searchParams.get('name');
-  const normalizedName = nameParam ? nameParam.trim().slice(0, 50) : null;
+  const viewerTarget = url.searchParams.get('user');
+  const normalizedName = sanitizeName(nameParam, `Streamer_${Math.floor(Math.random() * 1_000_000)}`);
 
   if (!room) {
     ws.close(1008, 'room parameter is required');
     return;
   }
 
-  const roomData = ensureRoom(room);
-  console.log(`New connection: room=${room}, role=${role}`);
+  const roomData = getRoom(room);
+  console.log(`New connection: room=${room}, role=${role}, name=${normalizedName}${viewerTarget ? `, target=${viewerTarget}` : ''}`);
 
   if (role === 'publisher') {
-    if (roomData.publisher && roomData.publisher.readyState === WebSocket.OPEN) {
-      console.log(`Replacing previous publisher in room ${room}`);
+    const existing = roomData.publishers.get(normalizedName);
+    if (existing && existing.socket.readyState === WebSocket.OPEN) {
+      console.log(`Replacing existing publisher in room ${room} with username=${normalizedName}`);
       try {
-        roomData.publisher.close(1000, 'replaced');
+        existing.socket.close(1000, 'replaced');
       } catch (err) {
-        console.error(`Failed to close previous publisher:`, err);
+        console.error('Failed to close previous publisher socket', err);
       }
     }
 
-    roomData.publisher = ws;
-    roomData.connectedAt = Date.now();
-    if (normalizedName) {
-      roomData.username = normalizedName;
-      console.log(`Publisher name from URL: room=${room}, user=${roomData.username}`);
-    }
-    broadcastRoomInfo(room, roomData);
-    console.log(`Publisher registered for room ${room}`);
+    const publisher = {
+      socket: ws,
+      displayName: normalizedName,
+      frame: null,
+      connectedAt: Date.now(),
+      lastFrameAt: null,
+    };
+    roomData.publishers.set(normalizedName, publisher);
+    broadcastSummary(room);
+    console.log(`Publisher registered: room=${room}, username=${normalizedName}`);
 
     ws.on('message', (rawMessage) => {
       let message;
@@ -126,69 +152,77 @@ wss.on('connection', (ws, req) => {
       }
 
       if (message.type === 'register') {
-        roomData.username = String(message.username || 'Unknown').trim() || 'Unknown';
-        roomData.connectedAt = Date.now();
-        console.log(`Publisher info updated: room=${room}, user=${roomData.username}`);
-        broadcastRoomInfo(room, roomData);
+        publisher.displayName = sanitizeName(message.username, publisher.displayName);
+        console.log(`Publisher info updated: room=${room}, username=${normalizedName}, display=${publisher.displayName}`);
+        broadcastSummary(room);
         return;
       }
 
       if (message.type === 'frame' && message.data) {
-        roomData.frame = message.data;
-        roomData.timestamp = Date.now();
+        publisher.frame = message.data;
+        publisher.lastFrameAt = Date.now();
 
-        roomData.viewers.forEach((viewer) => {
-          if (viewer.readyState === WebSocket.OPEN) {
-            viewer.send(
-              JSON.stringify({
-                type: 'frame',
-                data: message.data,
-                username: roomData.username,
-                timestamp: roomData.timestamp,
-              }),
-            );
-          }
-        });
+        const viewersSet = roomData.viewersByStreamer.get(normalizedName);
+        if (viewersSet) {
+          viewersSet.forEach((viewer) => sendJson(viewer, {
+            type: 'frame',
+            data: message.data,
+            username: publisher.displayName,
+            timestamp: publisher.lastFrameAt,
+          }));
+        }
       }
     });
 
     ws.on('close', () => {
-      console.log(`Publisher disconnected from room ${room}`);
-      disconnectPublisher(roomData);
-      roomData.viewers.forEach((viewer) => {
-        if (viewer.readyState === WebSocket.OPEN) {
-          viewer.send(JSON.stringify({ type: 'stream_ended' }));
-        }
-      });
-      broadcastRoomInfo(room, roomData);
+      console.log(`Publisher disconnected: room=${room}, username=${normalizedName}`);
+      roomData.publishers.delete(normalizedName);
+      const viewersSet = roomData.viewersByStreamer.get(normalizedName);
+      if (viewersSet) {
+        viewersSet.forEach((viewer) => sendJson(viewer, { type: 'stream_ended', username: publisher.displayName }));
+        roomData.viewersByStreamer.delete(normalizedName);
+      }
+      broadcastSummary(room);
+      cleanupRoom(room);
     });
   } else {
-    roomData.viewers.add(ws);
-    console.log(`Viewer joined room ${room}. Total viewers: ${roomData.viewers.size}`);
+    if (viewerTarget) {
+      const viewersSet = roomData.viewersByStreamer.get(viewerTarget) || new Set();
+      viewersSet.add(ws);
+      roomData.viewersByStreamer.set(viewerTarget, viewersSet);
+      console.log(`Viewer joined room=${room}, target=${viewerTarget}. Total viewers for target=${viewersSet.size}`);
 
-    // Надсилаємо інформацію про стрімера
-    ws.send(
-      JSON.stringify({
-        type: 'info',
-        room,
-        username: roomData.username,
-        connectedAt: roomData.connectedAt,
-        viewers: roomData.viewers.size,
-      }),
-    );
+      sendJson(ws, { type: 'summary', room, streamers: buildRoomSummary(room).streamers });
 
-    if (roomData.frame) {
-      ws.send(JSON.stringify({ type: 'frame', data: roomData.frame }));
-    }
-
-    ws.on('close', () => {
-      roomData.viewers.delete(ws);
-      console.log(`Viewer left room ${room}. Remaining: ${roomData.viewers.size}`);
-      if (!roomData.publisher && roomData.viewers.size === 0) {
-        rooms.delete(room);
-        console.log(`Room ${room} cleaned up`);
+      const publisher = roomData.publishers.get(viewerTarget);
+      if (publisher?.frame) {
+        sendJson(ws, {
+          type: 'frame',
+          data: publisher.frame,
+          username: publisher.displayName,
+          timestamp: publisher.lastFrameAt,
+        });
       }
-    });
+
+      ws.on('close', () => {
+        viewersSet.delete(ws);
+        if (viewersSet.size === 0) {
+          roomData.viewersByStreamer.delete(viewerTarget);
+        }
+        console.log(`Viewer left room=${room}, target=${viewerTarget}. Remaining viewers=${viewersSet.size}`);
+        cleanupRoom(room);
+      });
+    } else {
+      roomData.lobby.add(ws);
+      console.log(`Viewer joined lobby for room ${room}. Lobby size=${roomData.lobby.size}`);
+      sendJson(ws, { type: 'summary', room, streamers: buildRoomSummary(room).streamers });
+
+      ws.on('close', () => {
+        roomData.lobby.delete(ws);
+        console.log(`Viewer left lobby for room ${room}. Lobby size=${roomData.lobby.size}`);
+        cleanupRoom(room);
+      });
+    }
   }
 
   ws.on('error', (error) => {
@@ -196,29 +230,27 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-app.get('/api/rooms', (req, res) => {
-  const payload = Array.from(rooms.entries())
-    .filter(([, info]) => info.publisher && info.publisher.readyState === WebSocket.OPEN)
-    .map(([room, info]) => ({
-      room,
-      username: info.username || 'Unknown',
-      connectedAt: info.connectedAt,
-      lastFrame: info.timestamp,
-      viewers: info.viewers.size,
-    }));
+app.get('/api/rooms', (_req, res) => {
+  const payload = Array.from(rooms.keys()).map((roomName) => buildRoomSummary(roomName));
   res.json(payload);
 });
 
-app.get('/api/latest-frame/:room', (req, res) => {
-  const roomData = rooms.get(req.params.room);
-  if (!roomData || !roomData.frame) {
-    res.status(404).send('No frame available for this room');
+app.get('/api/latest-frame/:room/:user', (req, res) => {
+  const { room, user } = req.params;
+  const roomData = rooms.get(room);
+  if (!roomData) {
+    res.status(404).send('Room not found');
+    return;
+  }
+  const publisher = roomData.publishers.get(user);
+  if (!publisher || !publisher.frame) {
+    res.status(404).send('No frame available for this stream');
     return;
   }
   res.json({
-    frame: roomData.frame,
-    timestamp: roomData.timestamp,
-    username: roomData.username || 'Unknown',
+    frame: publisher.frame,
+    timestamp: publisher.lastFrameAt,
+    username: publisher.displayName,
   });
 });
 

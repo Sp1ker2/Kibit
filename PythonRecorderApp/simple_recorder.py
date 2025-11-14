@@ -358,15 +358,21 @@ class SimpleRecorder:
 
     def upload_video(self, file_path):
         if not file_path or not os.path.exists(file_path):
+            print("⚠️ Файл не існує для завантаження")
             return False
         if requests is None:
             print("ℹ️ requests не встановлено — пропускаємо завантаження.")
             return False
 
         file_size_mb = os.path.getsize(file_path) / 1024 / 1024
-        print(f"⏫ Завантаження відео {file_size_mb:.2f} MB на сервер...")
+        file_size_bytes = os.path.getsize(file_path)
+        print(f"⏫ Завантаження відео {file_size_mb:.2f} MB ({file_size_bytes} bytes) на сервер...")
+        print(f"   📍 URL: {self.api_url}/api/recordings/upload")
+        print(f"   👤 Username: {self.username or 'unknown'}")
+        print(f"   📍 Room: {self.room or 'unknown'}")
         self.update_status(f"⏫ Завантаження {file_size_mb:.1f} MB...")
 
+        upload_start_time = time.time()
         try:
             timestamp = int(time.time() * 1000)
             data = {
@@ -374,31 +380,64 @@ class SimpleRecorder:
                 "roomName": self.room or "unknown",
                 "timestamp": str(timestamp),
             }
+            print(f"📤 Початок POST запиту...")
             with open(file_path, "rb") as video_file:
                 files = {"video": (os.path.basename(file_path), video_file, "video/mp4")}
+                # Увеличено таймаут до 600 секунд (10 минут) для больших файлов и загрузки в Google Drive
                 response = requests.post(
                     f"{self.api_url}/api/recordings/upload",
                     data=data,
                     files=files,
-                    timeout=300,
-                    verify=False
+                    timeout=600,  # 10 минут
+                    verify=False,
+                    stream=False  # Отключаем streaming для более надежной загрузки
                 )
+                
+            upload_duration = time.time() - upload_start_time
+            print(f"📥 Отримано відповідь за {upload_duration:.2f} сек")
+            print(f"   📊 Status: {response.status_code}")
+            
+        except requests.exceptions.Timeout as timeout_err:
+            print(f"❌ Таймаут завантаження (більше 600 сек): {timeout_err}")
+            self.update_status("❌ Таймаут завантаження")
+            return False
+        except requests.exceptions.ConnectionError as conn_err:
+            print(f"❌ Помилка з'єднання: {conn_err}")
+            self.update_status("❌ Помилка з'єднання")
+            return False
         except Exception as exc:
-            print(f"❌ Помилка завантаження: {exc}")
-            self.update_status(f"❌ Помилка завантаження: {exc}")
+            print(f"❌ Помилка завантаження: {type(exc).__name__}: {exc}")
+            import traceback
+            traceback.print_exc()
+            self.update_status(f"❌ Помилка: {type(exc).__name__}")
             return False
 
         if response.ok:
-            print(f"✅ Відео успішно збережено ({file_size_mb:.2f} MB)")
-            self.update_status("✅ Відео збережено на сервері")
             try:
-                os.remove(file_path)
-            except Exception as remove_error:
-                print(f"⚠️ Не вдалося видалити тимчасовий файл: {remove_error}")
-            return True
+                response_data = response.json()
+                print(f"✅ Відео успішно збережено ({file_size_mb:.2f} MB)")
+                if 'storage' in response_data:
+                    storage = response_data.get('storage', 'unknown')
+                    print(f"   💾 Сховище: {storage}")
+                    if storage == 'google_drive' and 'driveWebLink' in response_data:
+                        print(f"   🔗 Google Drive: {response_data.get('driveWebLink', 'N/A')}")
+                self.update_status("✅ Відео збережено на сервері")
+                try:
+                    os.remove(file_path)
+                    print(f"🗑️ Тимчасовий файл видалено")
+                except Exception as remove_error:
+                    print(f"⚠️ Не вдалося видалити тимчасовий файл: {remove_error}")
+                return True
+            except Exception as json_err:
+                print(f"⚠️ Не вдалося розпарсити JSON відповідь: {json_err}")
+                print(f"   Відповідь: {response.text[:200]}")
+                # Но все равно считаем успешным, если статус 200-299
+                self.update_status("✅ Відео збережено")
+                return True
 
         print(f"❌ Помилка завантаження: {response.status_code}")
-        self.update_status(f"❌ Помилка завантаження ({response.status_code})")
+        print(f"   Відповідь: {response.text[:500]}")
+        self.update_status(f"❌ Помилка ({response.status_code})")
         return False
 
     def recording_loop(self, monitor_indices):
