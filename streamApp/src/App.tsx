@@ -3,6 +3,7 @@ import { LoginForm } from "@/components/LoginForm"
 import { AdminDashboard } from "@/components/admin/AdminDashboard"
 import { UserStreamPage } from "@/components/user/UserStreamPage"
 import { DatabaseAdminPage } from "@/components/DatabaseAdminPage"
+import { PublicVideosPage } from "@/components/PublicVideosPage"
 
 type UserType = "admin" | "user" | null
 
@@ -13,6 +14,16 @@ function App() {
   if (isDatabaseRoute) {
     return <DatabaseAdminPage />
   }
+
+  // Проверяем URL для /videos роута (публичная страница видео)
+  const isVideosRoute = window.location.pathname === '/videos'
+  
+  if (isVideosRoute) {
+    return <PublicVideosPage />
+  }
+  
+  // Проверяем URL для /logs роута (логи рекордеров - только для админов)
+  const isLogsRoute = window.location.pathname === '/logs'
   const [userType, setUserType] = useState<UserType>(null)
   const [username, setUsername] = useState("")
   const [room, setRoom] = useState("")
@@ -66,10 +77,20 @@ function App() {
     )
   }
 
+  // Если открыт роут /logs, показываем AdminDashboard с активной страницей logs
+  // Но только если пользователь - админ
+  if (isLogsRoute && userType === "admin") {
+    return (
+      <div className="dark">
+        <AdminDashboard onLogout={handleLogout} defaultPage="logs" />
+      </div>
+    )
+  }
+
   return (
     <div className="dark">
       {userType === "admin" ? (
-        <AdminDashboard onLogout={handleLogout} />
+        <AdminDashboard onLogout={handleLogout} defaultPage={isLogsRoute ? "logs" : undefined} />
       ) : userType === "user" ? (
         <UserStreamPage username={username} room={room} onLogout={handleLogout} />
       ) : (

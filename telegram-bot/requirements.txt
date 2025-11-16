@@ -1,0 +1,4 @@
+# Telegram recordings bot dependencies
+python-telegram-bot==20.8
+paramiko>=3.4.0
+

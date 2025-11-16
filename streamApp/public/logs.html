@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📋 Логи рекордерів - LiveKit</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📋</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f172a;
+            color: #e5e7eb;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #334155;
+        }
+
+        h1 {
+            font-size: 2rem;
+            color: #fbbf24;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button:disabled {
+            background: #475569;
+            cursor: not-allowed;
+        }
+
+        button.active {
+            background: #10b981;
+        }
+
+        button.delete {
+            background: #ef4444;
+        }
+
+        button.delete:hover {
+            background: #dc2626;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #334155;
+        }
+
+        .panel h2 {
+            font-size: 1.25rem;
+            margin-bottom: 15px;
+            color: #fbbf24;
+        }
+
+        .log-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .log-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #0f172a;
+            border: 2px solid #334155;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .log-item:hover {
+            border-color: #2563eb;
+            background: #1e293b;
+        }
+
+        .log-item.selected {
+            border-color: #2563eb;
+            background: #1e3a8a;
+        }
+
+        .log-item .username {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #60a5fa;
+            margin-bottom: 5px;
+        }
+
+        .log-item .room {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-bottom: 8px;
+        }
+
+        .log-item .info {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+
+        .log-content {
+            background: #000;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+        }
+
+        .error {
+            background: #7f1d1d;
+            color: #fca5a5;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 10px;
+        }
+
+        .status.active {
+            background: #065f46;
+            color: #6ee7b7;
+        }
+
+        .status.inactive {
+            background: #78350f;
+            color: #fcd34d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📋 Логи рекордерів</h1>
+            <div class="controls">
+                <button id="refreshBtn" onclick="refreshLogs()">🔄 Оновити</button>
+                <button id="autoRefreshBtn" onclick="toggleAutoRefresh()">▶️ Автооновлення</button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <div class="panel">
+                <h2>Активні рекордери <span id="count">(0)</span></h2>
+                <div id="errorContainer"></div>
+                <div id="logList" class="log-list">
+                    <div class="loading">Завантаження...</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2 id="selectedTitle">Виберіть рекордер</h2>
+                <div id="logContent">
+                    <div class="empty-state">
+                        Виберіть рекордер зі списку для перегляду логів
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Автоматично визначаємо API URL на основі поточного хосту
+        const getApiUrl = () => {
+            const host = window.location.hostname;
+            const port = window.location.port;
+            const protocol = window.location.protocol;
+            
+            // Якщо порт 8443, використовуємо HTTPS з портом 8443
+            if (port === '8443' || host.includes('kibitkostreamappv')) {
+                return 'https://kibitkostreamappv.pp.ua:8443/api';
+            }
+            
+            // Якщо порт 3001, використовуємо HTTP на тому ж хості
+            if (port === '3001' || host === 'localhost' || host === '127.0.0.1') {
+                return `${protocol}//${host}:3001/api`;
+            }
+            
+            // За замовчуванням використовуємо поточний хост з портом 3001
+            return `${protocol}//${host}:3001/api`;
+        };
+        
+        const API_URL = getApiUrl();
+        
+        let autoRefreshInterval = null;
+        let selectedLog = null;
+        let autoRefreshEnabled = false;
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleString('uk-UA', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function showError(message) {
+            const container = document.getElementById('errorContainer');
+            container.innerHTML = `<div class="error">❌ ${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        async function fetchLogs() {
+            try {
+                const response = await fetch(`${API_URL}/recorder/logs`);
+                if (!response.ok) {
+                    throw new Error('Помилка отримання списку логів');
+                }
+                const logs = await response.json();
+                displayLogs(logs);
+            } catch (error) {
+                showError(error.message);
+                document.getElementById('logList').innerHTML = '<div class="empty-state">❌ Помилка завантаження</div>';
+            }
+        }
+
+        function displayLogs(logs) {
+            const list = document.getElementById('logList');
+            
+            // Перевірка на undefined/null
+            if (!logs || !Array.isArray(logs)) {
+                document.getElementById('count').textContent = `(0)`;
+                list.innerHTML = '<div class="empty-state">❌ Помилка: некоректні дані</div>';
+                return;
+            }
+            
+            document.getElementById('count').textContent = `(${logs.length})`;
+
+            if (logs.length === 0) {
+                list.innerHTML = '<div class="empty-state">Немає активних рекордерів</div>';
+                return;
+            }
+
+            list.innerHTML = logs.map(log => `
+                <div class="log-item ${selectedLog === log.filename ? 'selected' : ''}" 
+                     onclick="selectLog('${log.filename}')">
+                    <div class="username">👤 ${log.username}</div>
+                    <div class="room">📍 ${log.room}</div>
+                    <div class="info">
+                        📁 ${log.filename}<br>
+                        📏 ${formatFileSize(log.size)} • 🕐 ${formatDate(log.modified)}
+                        <span class="status ${isActive(log.modified) ? 'active' : 'inactive'}">
+                            ${isActive(log.modified) ? 'Активний' : 'Неактивний'}
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function isActive(modified) {
+            const date = new Date(modified);
+            const now = new Date();
+            const diffMinutes = (now - date) / (1000 * 60);
+            return diffMinutes < 5; // Активний якщо оновлювався менше 5 хвилин тому
+        }
+
+        async function selectLog(filename) {
+            selectedLog = filename;
+            
+            // Оновлюємо список логів (але не блокуємо вибір)
+            try {
+                const logs = await fetchLogs();
+                if (logs && Array.isArray(logs)) {
+                    displayLogs(logs);
+                }
+            } catch (error) {
+                console.error('Помилка оновлення списку:', error);
+            }
+
+            // Завантажуємо вміст вибраного логу
+            try {
+                const response = await fetch(`${API_URL}/recorder/logs/${encodeURIComponent(filename)}`);
+                if (!response.ok) {
+                    throw new Error('Помилка завантаження логу');
+                }
+                const data = await response.json();
+                displayLogContent(data);
+            } catch (error) {
+                showError(error.message);
+                document.getElementById('logContent').innerHTML = `<div class="empty-state">❌ ${error.message}</div>`;
+            }
+        }
+
+        function displayLogContent(data) {
+            if (!data) {
+                document.getElementById('logContent').innerHTML = '<div class="empty-state">❌ Немає даних</div>';
+                return;
+            }
+            
+            document.getElementById('selectedTitle').textContent = `Логи: ${data.username || 'Unknown'} / ${data.room || 'Unknown'}`;
+            const content = document.getElementById('logContent');
+            
+            // Перевірка на наявність lines
+            if (!data.lines || !Array.isArray(data.lines)) {
+                content.innerHTML = '<div class="empty-state">❌ Логи порожні або некоректні</div>';
+                return;
+            }
+            
+            const info = `
+                <div style="margin-bottom: 10px; font-size: 0.9rem; color: #94a3b8;">
+                    Всього рядків: ${data.totalLines || data.lines.length} • Розмір: ${formatFileSize(data.size || 0)} • 
+                    Оновлено: ${formatDate(data.modified || new Date())}
+                    ${(data.totalLines || data.lines.length) > 10000 ? '<span style="color: #fbbf24;">(показано останні 10000 рядків)</span>' : ''}
+                </div>
+            `;
+            
+            content.innerHTML = info + `<div class="log-content">${data.lines.join('\n')}</div>`;
+            
+            // Прокрутка вниз до кінця
+            const logContent = content.querySelector('.log-content');
+            if (logContent) {
+                logContent.scrollTop = logContent.scrollHeight;
+            }
+        }
+
+        async function refreshLogs() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Оновлення...';
+            
+            await fetchLogs();
+            if (selectedLog) {
+                await selectLog(selectedLog);
+            }
+            
+            btn.disabled = false;
+            btn.textContent = '🔄 Оновити';
+        }
+
+        function toggleAutoRefresh() {
+            const btn = document.getElementById('autoRefreshBtn');
+            autoRefreshEnabled = !autoRefreshEnabled;
+            
+            if (autoRefreshEnabled) {
+                btn.textContent = '⏸️ Зупинити автооновлення';
+                btn.classList.add('active');
+                autoRefreshInterval = setInterval(async () => {
+                    await refreshLogs();
+                }, 5000); // Оновлення кожні 5 секунд
+            } else {
+                btn.textContent = '▶️ Автооновлення';
+                btn.classList.remove('active');
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+        }
+
+        // Початкове завантаження
+        fetchLogs();
+    </script>
+</body>
+</html>
+

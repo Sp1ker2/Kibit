@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📹 Видео из Google Drive</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .home-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+
+        .home-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+
+        .search-box {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .search-box input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .breadcrumb {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .breadcrumb-item {
+            color: #667eea;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .breadcrumb-item:hover {
+            text-decoration: underline;
+        }
+
+        .breadcrumb-separator {
+            color: #999;
+        }
+
+        .back-btn {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 2px solid #667eea;
+            color: #667eea;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            display: none;
+        }
+
+        .back-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .back-btn.show {
+            display: inline-block;
+        }
+
+        .content {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .title {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #667eea;
+            font-size: 18px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fee;
+            border: 2px solid #fcc;
+            color: #c33;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            border-color: #667eea;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .card-icon {
+            font-size: 40px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            flex: 1;
+            word-break: break-word;
+        }
+
+        .card-meta {
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+        }
+
+        .card-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+            font-size: 18px;
+        }
+
+        .video-player {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .video-player.show {
+            display: flex;
+        }
+
+        .video-player-content {
+            width: 100%;
+            max-width: 1200px;
+            position: relative;
+        }
+
+        .video-player-header {
+            color: white;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .video-player-header h2 {
+            font-size: 24px;
+        }
+
+        .close-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        video {
+            width: 100%;
+            border-radius: 10px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📹 Видео из Google Drive</h1>
+            <a href="/" class="home-btn">🏠 На главную</a>
+        </header>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="🔍 Поиск по названию...">
+        </div>
+
+        <div class="breadcrumb" id="breadcrumb"></div>
+
+        <button class="back-btn" id="backBtn" onclick="goBack()">← Назад</button>
+
+        <div class="content">
+            <div class="title" id="pageTitle">📁 Загрузка комнат...</div>
+            
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <div>Загрузка...</div>
+            </div>
+
+            <div id="error" class="error hidden"></div>
+
+            <div id="grid" class="grid hidden"></div>
+
+            <div id="empty" class="empty hidden">Пусто</div>
+        </div>
+    </div>
+
+    <div class="video-player" id="videoPlayer">
+        <div class="video-player-content">
+            <div class="video-player-header">
+                <h2 id="videoTitle">Видео</h2>
+                <button class="close-btn" onclick="closeVideo()">✕ Закрыть</button>
+            </div>
+            <video id="videoElement" controls autoplay></video>
+        </div>
+    </div>
+
+    <script>
+        // Определяем API URL - всегда используем текущий origin для запросов к API
+        const API_URL = window.location.origin;
+        
+        console.log('API_URL:', API_URL);
+        console.log('Запросы будут идти на:', API_URL + '/api/drive/...');
+        
+        let currentView = 'rooms';
+        let selectedRoom = null;
+        let selectedUser = null;
+        let selectedDate = null;
+        let allItems = [];
+
+        // Загрузка комнат
+        async function loadRooms() {
+            showLoading();
+            hideError();
+            currentView = 'rooms';
+            
+            try {
+                const response = await fetch(`${API_URL}/api/drive/rooms`);
+                if (!response.ok) throw new Error('Не удалось загрузить комнаты');
+                
+                allItems = await response.json();
+                updateBreadcrumb([]);
+                updatePageTitle('📁 Комнаты');
+                renderItems(allItems);
+            } catch (error) {
+                showError('Ошибка загрузки комнат: ' + error.message);
+            }
+        }
+
+        // Загрузка пользователей
+        async function loadUsers(roomId) {
+            showLoading();
+            hideError();
+            currentView = 'users';
+            
+            try {
+                const response = await fetch(`${API_URL}/api/drive/rooms/${roomId}/users`);
+                if (!response.ok) throw new Error('Не удалось загрузить пользователей');
+                
+                allItems = await response.json();
+                updateBreadcrumb([selectedRoom]);
+                updatePageTitle(`👥 Пользователи в комнате "${selectedRoom.name}"`);
+                renderItems(allItems);
+            } catch (error) {
+                showError('Ошибка загрузки пользователей: ' + error.message);
+            }
+        }
+
+        // Загрузка дат
+        async function loadDates(userId) {
+            showLoading();
+            hideError();
+            currentView = 'dates';
+            
+            try {
+                const response = await fetch(`${API_URL}/api/drive/users/${userId}/dates`);
+                if (!response.ok) throw new Error('Не удалось загрузить даты');
+                
+                allItems = await response.json();
+                updateBreadcrumb([selectedRoom, selectedUser]);
+                updatePageTitle(`📅 Даты пользователя "${selectedUser.name}"`);
+                renderItems(allItems);
+            } catch (error) {
+                showError('Ошибка загрузки дат: ' + error.message);
+            }
+        }
+
+        // Загрузка видео
+        async function loadVideos(dateId) {
+            showLoading();
+            hideError();
+            currentView = 'videos';
+            
+            try {
+                const response = await fetch(`${API_URL}/api/drive/dates/${dateId}/videos`);
+                if (!response.ok) throw new Error('Не удалось загрузить видео');
+                
+                allItems = await response.json();
+                updateBreadcrumb([selectedRoom, selectedUser, selectedDate]);
+                updatePageTitle(`🎬 Видео от ${selectedDate.name}`);
+                renderItems(allItems);
+            } catch (error) {
+                showError('Ошибка загрузки видео: ' + error.message);
+            }
+        }
+
+        // Отображение элементов
+        function renderItems(items) {
+            const grid = document.getElementById('grid');
+            const filteredItems = filterItems(items);
+            
+            hideLoading();
+            
+            if (filteredItems.length === 0) {
+                document.getElementById('empty').classList.remove('hidden');
+                grid.classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('empty').classList.add('hidden');
+            grid.classList.remove('hidden');
+            
+            grid.innerHTML = filteredItems.map(item => {
+                if (currentView === 'videos') {
+                    return renderVideo(item);
+                } else {
+                    return renderFolder(item);
+                }
+            }).join('');
+
+            // Добавляем обработчики событий
+            if (currentView === 'videos') {
+                grid.querySelectorAll('.card').forEach(card => {
+                    card.addEventListener('click', (e) => {
+                        if (!e.target.closest('.btn-secondary')) {
+                            const videoId = card.dataset.id;
+                            const video = filteredItems.find(v => v.id === videoId);
+                            openVideo(video);
+                        }
+                    });
+                });
+            } else {
+                grid.querySelectorAll('.card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        const itemId = card.dataset.id;
+                        const item = filteredItems.find(i => i.id === itemId);
+                        handleItemClick(item);
+                    });
+                });
+            }
+
+            document.getElementById('backBtn').classList.toggle('show', currentView !== 'rooms');
+        }
+
+        // Рендер папки
+        function renderFolder(item) {
+            const icon = currentView === 'rooms' ? '📁' : currentView === 'users' ? '👤' : '📅';
+            const iconColor = currentView === 'rooms' ? '#4A90E2' : currentView === 'users' ? '#50C878' : '#9370DB';
+            
+            return `
+                <div class="card" data-id="${item.id}">
+                    <div class="card-header">
+                        <div class="card-icon" style="color: ${iconColor}">${icon}</div>
+                        <div class="card-title">${escapeHtml(item.name)}</div>
+                    </div>
+                    ${item.modifiedTime ? `<div class="card-meta">${formatDate(item.modifiedTime)}</div>` : ''}
+                </div>
+            `;
+        }
+
+        // Рендер видео
+        function renderVideo(video) {
+            return `
+                <div class="card" data-id="${video.id}">
+                    <div class="card-header">
+                        <div class="card-icon" style="color: #FF4444">🎬</div>
+                        <div class="card-title">${escapeHtml(video.name)}</div>
+                    </div>
+                    <div class="card-meta">
+                        ${formatFileSize(video.size)}
+                        ${video.createdTime ? ` • ${formatDate(video.createdTime)}` : ''}
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn btn-primary" onclick="event.stopPropagation(); openVideo(${JSON.stringify(video).replace(/"/g, '&quot;')})">
+                            ▶ Смотреть
+                        </button>
+                        ${video.webViewLink ? `
+                            <button class="btn btn-secondary" onclick="event.stopPropagation(); window.open('${video.webViewLink}', '_blank')">
+                                ⬇ Скачать
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Обработка клика по элементу
+        function handleItemClick(item) {
+            if (currentView === 'rooms') {
+                selectedRoom = item;
+                loadUsers(item.id);
+            } else if (currentView === 'users') {
+                selectedUser = item;
+                loadDates(item.id);
+            } else if (currentView === 'dates') {
+                selectedDate = item;
+                loadVideos(item.id);
+            }
+        }
+
+        // Открытие видео
+        async function openVideo(video) {
+            showLoading();
+            try {
+                const response = await fetch(`${API_URL}/api/drive/files/${video.id}/stream`);
+                if (!response.ok) throw new Error('Не удалось получить ссылку на видео');
+                
+                const data = await response.json();
+                const videoUrl = data.url || video.webViewLink;
+                
+                document.getElementById('videoTitle').textContent = video.name;
+                document.getElementById('videoElement').src = videoUrl;
+                document.getElementById('videoPlayer').classList.add('show');
+                hideLoading();
+            } catch (error) {
+                hideLoading();
+                showError('Ошибка загрузки видео: ' + error.message);
+            }
+        }
+
+        // Закрытие видео
+        function closeVideo() {
+            document.getElementById('videoPlayer').classList.remove('show');
+            document.getElementById('videoElement').src = '';
+        }
+
+        // Назад
+        function goBack() {
+            if (currentView === 'videos') {
+                loadDates(selectedUser.id);
+            } else if (currentView === 'dates') {
+                loadUsers(selectedRoom.id);
+            } else if (currentView === 'users') {
+                loadRooms();
+            }
+        }
+
+        // Обновление хлебных крошек
+        function updateBreadcrumb(path) {
+            const breadcrumb = document.getElementById('breadcrumb');
+            const items = [
+                { name: 'Комнаты', action: () => loadRooms() },
+                ...path.map(item => ({ name: item.name, action: () => {
+                    if (path.length === 1) {
+                        selectedRoom = item;
+                        loadUsers(item.id);
+                    } else if (path.length === 2) {
+                        selectedUser = item;
+                        loadDates(item.id);
+                    }
+                }}))
+            ];
+            
+            breadcrumb.innerHTML = items.map((item, i) => 
+                i === items.length - 1 
+                    ? `<span>${escapeHtml(item.name)}</span>`
+                    : `<span class="breadcrumb-item" onclick="${item.action.toString().replace(/"/g, '&quot;')}">${escapeHtml(item.name)}</span><span class="breadcrumb-separator">/</span>`
+            ).join('');
+
+            // Добавляем обработчики клика
+            breadcrumb.querySelectorAll('.breadcrumb-item').forEach((el, i) => {
+                el.addEventListener('click', items[i].action);
+            });
+        }
+
+        // Обновление заголовка страницы
+        function updatePageTitle(title) {
+            document.getElementById('pageTitle').textContent = title;
+        }
+
+        // Поиск
+        function filterItems(items) {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            if (!search) return items;
+            return items.filter(item => item.name.toLowerCase().includes(search));
+        }
+
+        // Утилиты
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('grid').classList.add('hidden');
+            document.getElementById('empty').classList.add('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = message;
+            errorEl.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('error').classList.add('hidden');
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function formatDate(dateString) {
+            try {
+                return new Date(dateString).toLocaleDateString('ru-RU', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch {
+                return dateString;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Инициализация
+        document.getElementById('searchInput').addEventListener('input', () => {
+            renderItems(allItems);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeVideo();
+            }
+        });
+
+        // Загружаем комнаты при загрузке страницы
+        loadRooms();
+    </script>
+</body>
+</html>
+

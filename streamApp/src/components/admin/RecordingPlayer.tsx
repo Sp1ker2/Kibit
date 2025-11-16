@@ -48,7 +48,7 @@ export function RecordingPlayer({ path, username, onClose }: RecordingPlayerProp
               controls
               autoPlay
               className="w-full h-full"
-              src={`${API_URL}/api/recordings/stream/${path}`}
+              src={path.startsWith('http') ? path : `${API_URL}/api/recordings/stream/${path}`}
             >
               Ваш браузер не поддерживает воспроизведение видео.
             </video>

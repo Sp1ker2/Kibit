@@ -5,5 +5,10 @@ requests==2.31.0
 Pillow==10.1.0
 pystray==0.19.5
 pyinstaller==6.3.0
+websocket-client==1.6.4
+certifi==2023.11.17
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
 
 

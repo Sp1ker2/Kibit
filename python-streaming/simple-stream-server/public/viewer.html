@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top, #1f2937 0%, #0f172a 55%, #020617 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 28px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 20px 45px rgba(15, 23, 42, 0.6);
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+
+        .title {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .title span:first-child {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            font-size: 0.95rem;
+            opacity: 0.75;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 16px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.18);
+            color: #34d399;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .status-pill.disconnected {
+            background: rgba(220, 38, 38, 0.18);
+            color: #f87171;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .select-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 0.85rem;
+        }
+
+        .select-group label {
+            opacity: 0.7;
+        }
+
+        .select-group select {
+            appearance: none;
+            background: rgba(51, 65, 85, 0.6);
+            color: #e2e8f0;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 10px;
+            padding: 10px 38px 10px 14px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            min-width: 180px;
+            outline: none;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .select-wrapper {
+            position: relative;
+        }
+
+        .select-wrapper::after {
+            content: '▾';
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+            color: #94a3b8;
+        }
+
+        button {
+            border: none;
+            border-radius: 999px;
+            padding: 10px 18px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        #refresh-btn {
+            background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
+            color: #fff;
+        }
+
+        #refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(37, 99, 235, 0.35);
+        }
+
+        #back-btn {
+            background: rgba(148, 163, 184, 0.2);
+            color: #cbd5f5;
+        }
+
+        #back-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(148, 163, 184, 0.25);
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        #video-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 18px;
+            background: #000;
+            box-shadow: 0 25px 45px rgba(2, 6, 23, 0.45);
+        }
+
+        .placeholder-text {
+            position: absolute;
+            font-size: 1.1rem;
+            color: rgba(148, 163, 184, 0.8);
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+            .controls {
+                width: 100%;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            .select-group select {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="title">
+            <span id="room-title">Кімната</span>
+            <span class="subtitle" id="room-subtitle">Очікування стрімера…</span>
+        </div>
+        <div class="controls">
+            <div class="status-pill disconnected" id="status">
+                <span class="status-dot"></span>
+                <span id="status-text">⏳ Очікування…</span>
+            </div>
+            <div class="select-group">
+                <label for="streamer-select">Стрімер</label>
+                <div class="select-wrapper">
+                    <select id="streamer-select"></select>
+                </div>
+            </div>
+            <button id="refresh-btn" type="button">🔄 Оновити</button>
+            <button id="back-btn" type="button">← До списку</button>
+        </div>
+    </header>
+
+    <main>
+        <canvas id="video-canvas"></canvas>
+    </main>
+
+    <script>
+        const query = new URLSearchParams(window.location.search);
+        const roomName = query.get('room');
+        let currentStreamer = query.get('user') || null;
+
+        const roomTitleEl = document.getElementById('room-title');
+        const roomSubtitleEl = document.getElementById('room-subtitle');
+        const statusEl = document.getElementById('status');
+        const statusTextEl = document.getElementById('status-text');
+        const streamerSelect = document.getElementById('streamer-select');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const backBtn = document.getElementById('back-btn');
+        const canvas = document.getElementById('video-canvas');
+        const ctx = canvas.getContext('2d');
+
+        let ws = null;
+        let reconnectTimeout = null;
+        let streamersList = [];
+
+        if (!roomName) {
+            roomTitleEl.textContent = '❌ Room параметр не передано';
+            roomSubtitleEl.textContent = 'Додайте ?room=<назва> до URL';
+            streamerSelect.innerHTML = '<option disabled selected>—</option>';
+        } else {
+            roomTitleEl.textContent = `Кімната: ${roomName}`;
+        }
+
+        function updateStatus(state, text) {
+            if (state === 'connected') {
+                statusEl.classList.remove('disconnected');
+            } else {
+                statusEl.classList.add('disconnected');
+            }
+            statusTextEl.textContent = text;
+        }
+
+        function resetCanvasPlaceholder(message) {
+            const width = canvas.width || 1280;
+            const height = canvas.height || 720;
+            canvas.width = width;
+            canvas.height = height;
+            ctx.fillStyle = '#050816';
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '24px "Segoe UI"';
+            ctx.textAlign = 'center';
+            ctx.fillText(message, width / 2, height / 2);
+        }
+
+        function applyStreamers(list, { autoReconnect = false, forceReconnect = false } = {}) {
+            const previousStreamer = currentStreamer;
+            streamersList = Array.isArray(list) ? list : [];
+            streamerSelect.innerHTML = '';
+
+            if (streamersList.length === 0) {
+                streamerSelect.innerHTML = '<option value="" disabled selected>Немає стрімерів</option>';
+                roomSubtitleEl.textContent = 'Немає активних стрімерів';
+                if (autoReconnect) {
+                    currentStreamer = null;
+                    disconnectSocket();
+                    resetCanvasPlaceholder('⌛ Очікуємо підключення стрімера');
+                    updateStatus('disconnected', '🟡 Очікуємо стрімера');
+                }
+                return;
+            }
+
+            streamersList.forEach((item) => {
+                const option = document.createElement('option');
+                option.value = item.username;
+                option.textContent = item.displayName || item.username;
+                streamerSelect.appendChild(option);
+            });
+
+            // Если текущий стример больше не активен, переключиться на первого доступного
+            const currentStreamerStillActive = currentStreamer && streamersList.some((item) => item.username === currentStreamer);
+            if (!currentStreamer || !currentStreamerStillActive) {
+                currentStreamer = streamersList[0].username;
+            }
+
+            streamerSelect.value = currentStreamer;
+            const display = streamersList.find((s) => s.username === currentStreamer)?.displayName || currentStreamer;
+            roomSubtitleEl.textContent = `Стрімер: ${display}`;
+
+            if (autoReconnect) {
+                // Переподключаемся только если:
+                // 1. Нет соединения
+                // 2. Соединение не открыто
+                // 3. Стример изменился (и мы действительно хотим переключиться)
+                // 4. Принудительное переподключение
+                const shouldReconnect =
+                    forceReconnect ||
+                    !ws ||
+                    ws.readyState !== WebSocket.OPEN ||
+                    (currentStreamer !== previousStreamer && !currentStreamerStillActive);
+                
+                if (shouldReconnect) {
+                    connectSocket();
+                }
+            }
+        }
+
+        function disconnectSocket() {
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+            if (ws) {
+                ws.onopen = null;
+                ws.onmessage = null;
+                ws.onerror = null;
+                ws.onclose = null;
+                try {
+                    ws.close();
+                } catch (err) {
+                    console.error('Помилка закриття WebSocket:', err);
+                }
+                ws = null;
+            }
+        }
+
+        function connectSocket() {
+            disconnectSocket();
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+
+            if (!roomName) {
+                resetCanvasPlaceholder('❗ Вкажіть кімнату в параметрі room');
+                return;
+            }
+
+            if (!currentStreamer) {
+                resetCanvasPlaceholder('👀 Оберіть стрімера для перегляду');
+                updateStatus('disconnected', '🟠 Стрімер не обраний');
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const params = new URLSearchParams({ room: roomName, role: 'viewer', user: currentStreamer });
+            const wsUrl = `${protocol}//${window.location.host}?${params.toString()}`;
+
+            updateStatus('connecting', '⏳ Підключення…');
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                updateStatus('connected', '🟢 Підключено');
+                clearTimeout(reconnectTimeout);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+
+                    if (message.type === 'summary') {
+                        // Обновляем список стримеров, но не переподключаемся,
+                        // если текущий стример все еще активен
+                        applyStreamers(message.streamers, { autoReconnect: false });
+                        return;
+                    }
+
+                    if (message.type === 'frame' && message.data) {
+                        const img = new Image();
+                        img.onload = () => {
+                            if (canvas.width !== img.width || canvas.height !== img.height) {
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                            }
+                            ctx.drawImage(img, 0, 0);
+                        };
+                        img.src = `data:image/jpeg;base64,${message.data}`;
+                        return;
+                    }
+
+                    if (message.type === 'stream_ended') {
+                        updateStatus('disconnected', '⏸️ Стрім завершено');
+                        resetCanvasPlaceholder('⏸️ Стрім завершено');
+                        return;
+                    }
+                } catch (err) {
+                    console.error('Помилка обробки повідомлення:', err);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket помилка:', error);
+                updateStatus('disconnected', '❌ Помилка підключення');
+                resetCanvasPlaceholder('❌ Помилка підключення');
+            };
+
+            ws.onclose = () => {
+                updateStatus('disconnected', '🔴 Відключено');
+                if (!reconnectTimeout) {
+                    reconnectTimeout = setTimeout(() => {
+                        reconnectTimeout = null;
+                        connectSocket();
+                    }, 3000);
+                }
+            };
+        }
+
+        async function loadInitialSummary() {
+            try {
+                const response = await fetch('/api/rooms');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const rooms = await response.json();
+                const roomInfo = rooms.find((item) => item.room === roomName);
+                applyStreamers(roomInfo?.streamers || [], { autoReconnect: true });
+            } catch (error) {
+                console.error('Не вдалося завантажити список стрімерів:', error);
+                streamerSelect.innerHTML = '<option value="" disabled selected>Помилка завантаження</option>';
+                resetCanvasPlaceholder('❌ Не вдалося завантажити стрімерів');
+                updateStatus('disconnected', '❌ Помилка списку стрімерів');
+            }
+        }
+
+        streamerSelect.addEventListener('change', (event) => {
+            currentStreamer = event.target.value || null;
+            const display = streamersList.find((s) => s.username === currentStreamer)?.displayName || currentStreamer;
+            roomSubtitleEl.textContent = currentStreamer ? `Стрімер: ${display}` : 'Стрімер не обраний';
+            connectSocket();
+        });
+
+        refreshBtn.addEventListener('click', () => {
+            loadInitialSummary();
+        });
+
+        backBtn.addEventListener('click', () => {
+            window.location.href = '/';
+        });
+
+        resetCanvasPlaceholder('⏳ Очікування стріму…');
+        loadInitialSummary();
+    </script>
+</body>
+</html>
+

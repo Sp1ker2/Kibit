@@ -2,15 +2,18 @@ import { useState } from "react"
 import { AdminHeader } from "./AdminHeader"
 import { LivePage } from "./LivePage"
 import { RecordingsPage } from "./RecordingsPage"
+import { DriveRecordingsPage } from "./DriveRecordingsPage"
 import { AccountsPage } from "./AccountsPage"
 import { DatabasePage } from "./DatabasePage"
+import { RecorderLogsPage } from "./RecorderLogsPage"
 
 interface AdminDashboardProps {
   onLogout: () => void
+  defaultPage?: "live" | "recordings" | "drive" | "accounts" | "rooms" | "database" | "logs"
 }
 
-export function AdminDashboard({ onLogout }: AdminDashboardProps) {
-  const [activePage, setActivePage] = useState<"live" | "recordings" | "accounts" | "rooms" | "database">("live")
+export function AdminDashboard({ onLogout, defaultPage }: AdminDashboardProps) {
+  const [activePage, setActivePage] = useState<"live" | "recordings" | "drive" | "accounts" | "rooms" | "database" | "logs">(defaultPage || "live")
   const [searchQuery, setSearchQuery] = useState("")
 
   const renderPage = () => {
@@ -19,12 +22,16 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
         return <LivePage searchQuery={searchQuery} />
       case "recordings":
         return <RecordingsPage searchQuery={searchQuery} />
+      case "drive":
+        return <DriveRecordingsPage searchQuery={searchQuery} />
       case "accounts":
         return <AccountsPage />
       case "rooms":
         return <DatabasePage /> // Комнаты теперь в Database
       case "database":
         return <DatabasePage />
+      case "logs":
+        return <RecorderLogsPage />
       default:
         return <LivePage searchQuery={searchQuery} />
     }

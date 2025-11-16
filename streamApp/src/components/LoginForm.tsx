@@ -150,6 +150,18 @@ export function LoginForm({ onLogin }: LoginFormProps) {
         <Button type="submit" className="w-full" onClick={handleSubmit} disabled={loading}>
           {loading ? "Вход..." : "Войти"}
         </Button>
+        <div className="text-sm text-muted-foreground text-center mt-2">
+          <a 
+            href="/logs" 
+            className="text-primary hover:underline"
+            onClick={(e) => {
+              e.preventDefault()
+              window.location.href = '/logs'
+            }}
+          >
+            📋 Переглянути логи рекордерів
+          </a>
+        </div>
       </CardFooter>
     </Card>
   )
