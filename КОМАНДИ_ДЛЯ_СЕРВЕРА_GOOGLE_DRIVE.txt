@@ -1,0 +1,25 @@
+# Виконати на сервері для налаштування Google Drive
+
+# 1. Підключіться до сервера
+# ssh user@server -p PORT
+
+# 2. Перейдіть до директорії
+cd /www/wwwroot/LiveKit
+
+# 3. Надайте права на скрипти
+chmod +x setup-google-drive-oauth2.sh
+chmod +x check-google-drive-status.sh
+
+# 4. Запустіть налаштування
+./setup-google-drive-oauth2.sh
+
+# 5. Перевірте статус
+./check-google-drive-status.sh
+
+# 6. Перевірте логи
+pm2 logs --lines 50 | grep -i "google\|drive"
+
+# АБО перевірте всі логи:
+pm2 logs --lines 100
+
+# Готово! Тепер Google Drive має працювати.

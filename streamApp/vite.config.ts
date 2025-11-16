@@ -20,4 +20,16 @@ export default defineConfig({
       ".localhost",
     ],
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: './index.html',
+      },
+    },
+  },
+  // Настройка для SPA роутинга - все маршруты должны возвращать index.html
+  preview: {
+    port: 5173,
+    host: '0.0.0.0',
+  },
 })

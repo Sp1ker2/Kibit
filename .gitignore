@@ -4,3 +4,32 @@ livekit
 *.db
 database.db
 streamApp/database.db
+
+# Node modules
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Google Service Account JSON (секреты)
+**/google-service-account.json
+**/*service-account*.json
+
+# Environment files
+.env.local
+.env.*.local
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp

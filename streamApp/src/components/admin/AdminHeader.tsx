@@ -11,8 +11,8 @@ import {
 
 interface AdminHeaderProps {
   onLogout: () => void
-  activePage: "live" | "recordings" | "accounts" | "rooms" | "database"
-  onPageChange: (page: "live" | "recordings" | "accounts" | "rooms" | "database") => void
+  activePage: "live" | "recordings" | "drive" | "accounts" | "rooms" | "database" | "logs"
+  onPageChange: (page: "live" | "recordings" | "drive" | "accounts" | "rooms" | "database" | "logs") => void
   searchQuery: string
   onSearchChange: (query: string) => void
 }
@@ -67,6 +67,18 @@ export function AdminHeader({ onLogout, activePage, onPageChange, searchQuery, o
               </NavigationMenuItem>
               <NavigationMenuItem>
                 <NavigationMenuLink 
+                  onClick={() => onPageChange("drive")}
+                  className={`${navigationMenuTriggerStyle()} cursor-pointer ${
+                    activePage === "drive" 
+                      ? "text-foreground bg-accent" 
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  ☁️ Google Drive
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink 
                   onClick={() => onPageChange("accounts")}
                   className={`${navigationMenuTriggerStyle()} cursor-pointer ${
                     activePage === "accounts" 
@@ -99,6 +111,18 @@ export function AdminHeader({ onLogout, activePage, onPageChange, searchQuery, o
                   }`}
                 >
                   🗄️ База данных
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink 
+                  onClick={() => onPageChange("logs")}
+                  className={`${navigationMenuTriggerStyle()} cursor-pointer ${
+                    activePage === "logs" 
+                      ? "text-foreground bg-accent" 
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  📋 Логи
                 </NavigationMenuLink>
               </NavigationMenuItem>
             </NavigationMenuList>
